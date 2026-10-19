@@ -1,0 +1,33 @@
+{
+  "name": "naira-offramp-mcp",
+  "version": "0.1.0",
+  "description": "Cash out USDC on Arc to a Nigerian bank account through MCP.",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22.13.0" },
+  "bin": { "naira-offramp-mcp": "dist/cli.js" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md", "LICENSE", "docs"],
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "start": "node --env-file-if-exists=.env dist/cli.js",
+    "dev": "node --env-file-if-exists=.env --import tsx src/cli.ts",
+    "doctor": "node --env-file-if-exists=.env --import tsx src/cli.ts doctor",
+    "demo": "node --import tsx scripts/demo.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@solana/addresses": "^8.5.0",
+    "viem": "^2.38.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "repository": { "type": "git", "url": "git+https://github.com/Adeyemir/naira-offramp-mcp.git" }
+}
