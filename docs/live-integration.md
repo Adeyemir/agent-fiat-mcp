@@ -7,9 +7,11 @@
 - A reusable payout service and SQLite store.
 - MCP tools for recipient setup, quotes, approval, execution, and inspection.
 - A simulated provider and settlement ledger.
-- A Circle Agent Wallet helper that calls the Circle CLI with explicit `ARC` arguments, validates the CLI version, and requests typed-data signatures. No private key, Circle API key, or developer-controlled wallet is required by that helper. It has been tested using a fake executable, not a live signature.
+- A Circle Agent Wallet helper that calls the Circle CLI with explicit `ARC-TESTNET` or `ARC` arguments, validates the CLI version, and requests typed-data signatures. Testnet is the default; mainnet must be selected explicitly. No private key, Circle API key, or developer-controlled wallet is required by that helper. It has been tested using a fake executable, not a live signature.
+- A PAJ HTTP client for sessions, NGN bank verification, bank storage, rates, order creation, and order inspection; a local login helper stores the resulting session privately.
+- A read-only readiness command and MCP tool that query PAJ and Gateway and report unresolved integration requirements.
 
-The runtime currently selects the simulated adapters only. No live provider client, Gateway deposit, Gateway transfer, or bank payment is wired into it.
+The payout runtime currently selects the simulated adapters only. The raw PAJ client is implemented separately; Gateway deposit, Gateway transfer, and real bank payment are not wired into payout execution.
 
 ## Settlement research
 
@@ -17,7 +19,11 @@ Circle Agent Wallet is the wallet product for this project. The signing helper i
 
 Circle Gateway can move a deposited USDC balance between supported chains. Its [Forwarding Service](https://developers.circle.com/gateway/howtos/forwarding-service) can handle destination minting, and Gateway documents [ERC-1271 signatures](https://developers.circle.com/gateway/references/erc-1271) for smart contract accounts. Gateway supplies USDC settlement, not Nigerian bank payouts.
 
-The reference [PayBot project](https://github.com/MELcodes99/paybot) uses PAJ for NGN payouts. [PAJ's public site](https://paj.cash/) describes Solana token conversion. That does not establish direct Arc support. An Arc-funded route would need a confirmed settlement arrangement with PAJ or another NGN provider. In particular, a Gateway mint must not be assumed to count as payment to a provider deposit address.
+The reference [PayBot project](https://github.com/MELcodes99/paybot) uses PAJ for NGN payouts. PAJ's newer [V2 announcement](https://paj.cash/blog/PAJ-V2-Is-Live-And-It-Just-Changed-What-Crypto-Payments-Mean-in-Africa) and [official API reference](https://github.com/paj-cash/paj_ramp/blob/main/lib/API_REFERENCE.md) list `SOLANA` and `MONAD` as settlement chains. They do not document direct Arc settlement. Gateway's [published supported chains](https://developers.circle.com/gateway/references/supported-blockchains) and public `/v1/info` response were checked on 2026-10-19: Arc and Solana were present; Monad was absent. Chain lists may change, so the readiness command checks the selected Gateway environment again.
+
+An Arc-funded route needs a confirmed settlement arrangement with PAJ or another NGN provider. A Gateway destination mint must not be assumed to count as payment to a provider deposit address. The raw PAJ client refuses a made-up `chain: "ARC"` request.
+
+The PAJ reference does not specify an order expiry guarantee. Its bank parameter is shown as a bank-directory ID in section 9 and as a saved-account ID in section 14. Those semantics need confirmation before wiring live payout execution. The raw client requires the caller to supply the provider's bank reference explicitly and does not invent an expiry or add `fee` to the quoted `amount` a second time.
 
 These are integration options, not evidence that the combined route works. The customer's funding source remains Arc and the recipient remains a Nigerian bank account.
 
@@ -31,4 +37,4 @@ Before wiring live execution, obtain the payout provider's API access and suppor
 4. Verify the Circle Agent Wallet signature path and source funding/deposit flow in the supported environment.
 5. Run a separately approved, small live payout and verify actual bank credit before describing the route as working.
 
-The current checks and tests prove the simulated workflow and local control logic. They do not prove provider acceptance, live wallet signing, settlement delivery, or NGN bank credit.
+The current checks and tests prove the simulated workflow, local control logic, API request/response validation using mocks, and public API connectivity. Authenticated API access has not yet been tested with this project's credentials. They do not prove provider settlement acceptance, live wallet signing, settlement delivery, or NGN bank credit. See [provider setup and confirmation questions](provider-setup.md).

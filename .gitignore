@@ -7,4 +7,6 @@ dist/
 .data/
 coverage/
 .DS_Store
+paj-session-*.json
+.paj-session-*.tmp
 *.log

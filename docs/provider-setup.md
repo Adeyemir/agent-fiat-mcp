@@ -1,0 +1,54 @@
+# PAJ provider setup
+
+## Current status
+
+The raw HTTP client is implemented from PAJ's [official API reference](https://github.com/paj-cash/paj_ramp/blob/main/lib/API_REFERENCE.md), repository revision `6205abba52efeafb401572ff1cfdf8e8b0c381ec`, checked 2026-10-19. It is separate from the MCP payout runtime, which still uses simulated adapters. Provider access does not enable live payouts.
+
+## Get API access
+
+Use your own account at the [PAJ Business dashboard](https://developer.paj.cash/). Obtain a Business API key for the intended API environment. If the dashboard requires onboarding or approval, complete that with PAJ; this project cannot issue keys.
+
+Copy `.env.example` to `.env` locally, restrict the file to your user (`chmod 600 .env`), and set:
+
+```dotenv
+OFFRAMP_MODE=demo
+PAJ_ENVIRONMENT=staging
+ARC_NETWORK=testnet
+PAJ_API_KEY=your_business_key
+PAJ_EMAIL=your_account_email
+```
+
+Keep the key out of chat and source control. These variables are configuration for provider diagnostics and local login. The PAJ environment and blockchain network are separate choices: PAJ staging is not evidence that a deposit address accepts testnet tokens. No staging order should be funded until PAJ confirms the token and network.
+
+## Authenticate locally
+
+```sh
+npm run provider:login
+```
+
+The command requires an interactive terminal. It shows the email and API environment, asks you to type `SEND`, then requests the OTP. Enter the code locally. A session token is saved with mode `0600` to `paj-session-staging.json` in your private `OFFRAMP_DATA_DIR`. Production sessions use a separate file. API keys and OTPs are not saved in those files or returned to the agent. This login is separate from Circle Agent Wallet login.
+
+Alternatively, supply an existing `PAJ_SESSION_TOKEN` for the selected environment through your private environment. This takes precedence over a saved session. Expired saved sessions are rejected; the server does not silently request a new OTP.
+
+## Check access without moving funds
+
+```sh
+npm run provider:check
+```
+
+This fetches the public off-ramp rate and Gateway supported chains. If a session exists, it checks access to the authenticated Nigerian bank directory. It does not resolve a real account, create a beneficiary, create a payout order, request a wallet signature, or move funds. `livePayoutsAvailable` remains false.
+
+The same operation is available through the `get_readiness` MCP tool. Provider login is a local setup operation, not an MCP tool. Restart your MCP client after adding the tool or changing its environment. If your client launches Node directly, configure an absolute `--env-file-if-exists=/absolute/path/to/.env` argument before `dist/cli.js`, or pass variables in the client's private environment. Do not put credentials in a checked-in MCP configuration.
+
+The published rate endpoint currently omits `isActive`, although the reference example includes it. The client reports `active: null` when absent. The response's `createdAt` is preserved without assuming it is a rate update time or a quote expiry. An indicative rate response is not a locked payout quote.
+
+## Questions to confirm with PAJ before funding an order
+
+1. Do you accept USDC on Arc directly? If not, which settlement network, USDC token, API environment, and deposit-recipient format should an Arc-funded integration use?
+2. Do you credit USDC minted into the order deposit account by Circle Gateway's Forwarding Service? Does funding require a normal token transfer, a specific sender, or another attribution step?
+3. For `POST /pub/offramp`, is `bank` the bank-directory ID or the saved-account ID? Sections 9 and 14 of the reference describe different IDs.
+4. Is response `amount` the complete USDC deposit amount, and is `fiatAmount` the net NGN credited? How are fees, taxes, quote expiry, late deposits, and changed rates handled?
+5. What limits and account eligibility apply to this Business API integration? How can an order be reconciled after a timeout without creating a replacement payment?
+6. Does polled `COMPLETED` mean bank credit is confirmed? Is there a bank reference or payout receipt? How are webhook authenticity, failed bank payouts, and refunds handled?
+
+Keep these answers with the integration evidence. The next code step is to bind the verified provider order to the settlement adapter, retain the payment reference before submission, and perform a separately approved small live test. The user-facing request remains USDC on Arc to the saved Nigerian bank account, with no settlement-address entry.

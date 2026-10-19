@@ -2,7 +2,7 @@
 
 Ask an agent to cash out **USDC on Arc into a Nigerian bank account**. Save a verified bank account once; future requests use it by default.
 
-> **Current release: a working MCP demo.** Balances, rates, and bank payouts are simulated. Real Arc-to-NGN settlement is not implemented or verified, and live mode is unavailable.
+> **Current release: a working MCP payout demo plus real provider API checks.** Payout balances, quotes, and bank payouts are simulated. Readiness checks query PAJ and Gateway. Real Arc-to-NGN settlement is not implemented or verified, and live payouts are unavailable.
 
 The wallet integration targets **Circle Agent Wallet**, through the Circle CLI. The current demo does not access a wallet or move real funds.
 
@@ -78,10 +78,25 @@ In this release, the settlement and provider are simulated. The Circle CLI signi
 | `execute_payout` | Obtain approval and execute the prepared payout once. |
 | `payout_status` | Inspect settlement and provider progress. |
 | `payout_history` | Show the ten most recent payouts. |
+| `get_readiness` | Check provider access, Gateway support, and remaining live-integration blockers. |
 
 Amounts are decimal strings. `currency: "NGN"` means exact naira to receive; `currency: "USDC"` means maximum total USDC spend including fees. Normal tool results mask bank account numbers and omit settlement addresses. The approval dialog shows the full recipient and exact quote.
 
 Quotes expire. Repeating execution of the same payout inspects its existing state. An uncertain submission is recorded for reconciliation and is never automatically resent. A chain confirmation alone does not mark a bank payout complete. Demo completion always returns `simulated: true` and `bankPaid: false`.
+
+## Provider integration
+
+The PAJ HTTP client implements session login, NGN bank verification, rates, off-ramp orders, and order inspection against [PAJ's official API reference](https://github.com/paj-cash/paj_ramp/blob/main/lib/API_REFERENCE.md). The provider client is separate from the demo payout runtime; live wallet settlement is not wired in.
+
+Run a read-only check:
+
+```sh
+npm run provider:check
+```
+
+Or ask your connected agent: **“Check my off-ramp integration readiness.”** Without provider credentials, this checks public API connectivity and reports missing authenticated access. The rate in a readiness result is indicative diagnostic data, not a payout quote. PAJ staging data is not a live market rate.
+
+If you already have a PAJ Business API key, follow [provider setup](docs/provider-setup.md) to authenticate locally. No real bank details, OTP, API key, or session token should be sent through chat. API access alone does not verify the settlement rail. [Live integration status](docs/live-integration.md) lists the outstanding requirements.
 
 ## Development
 

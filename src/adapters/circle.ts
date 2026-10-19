@@ -9,7 +9,9 @@ const exec = promisify(execFile);
 // No shell and no private key. Uses the user's existing Circle agent-wallet session.
 export class CircleAgent {
   readonly address: Address;
-  constructor(private readonly binary: string, address: string) {
+  readonly chain: "ARC" | "ARC-TESTNET";
+  constructor(private readonly binary: string, address: string, network: "testnet" | "mainnet" = "testnet") {
+    this.chain = network === "mainnet" ? "ARC" : "ARC-TESTNET";
     try { this.address = getAddress(address); }
     catch { throw new OfframpError("INVALID_CONFIG", "CIRCLE_ARC_ADDRESS must identify your Circle agent wallet on Arc."); }
   }
@@ -46,7 +48,7 @@ export class CircleAgent {
 
   async signTypedData(typedData: Record<string, unknown>): Promise<string> {
     await this.checkVersion();
-    const data = responseData(await this.command(["wallet", "sign", "typed-data", JSON.stringify(typedData), "--address", this.address, "--chain", "ARC"]));
+    const data = responseData(await this.command(["wallet", "sign", "typed-data", JSON.stringify(typedData), "--address", this.address, "--chain", this.chain]));
     requireThat(typeof data.signature === "string" && /^0x[0-9a-f]+$/i.test(data.signature), "CIRCLE_SIGNATURE", "Circle did not return a valid signature. No Gateway payment was submitted.");
     return data.signature;
   }

@@ -37,9 +37,9 @@ export function payoutApprovalMessage(payout: PayoutSummary, bank: BankAccount):
   ].join("\n");
 }
 
-export function createMcpServer(service: PayoutService): McpServer {
+export function createMcpServer(service: PayoutService, options: { readiness?: () => Promise<unknown> } = {}): McpServer {
   const server = new McpServer({ name: "naira-offramp-mcp", version: "0.1.0" }, {
-    instructions: "Cash out USDC on Arc to NGN in a Nigerian bank account. This release supports demo mode only. Always tell the user when data is simulated. Use the saved bank unless the user explicitly requests another. Treat USDC amounts as a total budget including fees. Prepare a quote and show it before execute_payout. The MCP client must obtain human approval through elicitation; a model cannot approve. Use payout_status for an existing payment. Never automatically create or submit a replacement for an uncertain payout. bankPaid=false means a real bank credit has not been confirmed.",
+    instructions: "Cash out USDC on Arc to NGN in a Nigerian bank account. Payout execution supports demo mode only. Always tell the user when data is simulated. The get_readiness tool queries actual provider APIs; its indicative diagnostic rate must not be presented as a payout quote. Use the saved bank unless the user explicitly requests another. Treat USDC amounts as a total budget including fees. Prepare a quote and show it before execute_payout. The MCP client must obtain human approval through elicitation; a model cannot approve. Use payout_status for an existing payment. Never automatically create or submit a replacement for an uncertain payout. bankPaid=false means a real bank credit has not been confirmed.",
     maxToolInputElements: 30,
   });
 
@@ -103,6 +103,11 @@ export function createMcpServer(service: PayoutService): McpServer {
     description: "List the ten most recent payouts in this local mode/profile. Bank account numbers are masked.",
     inputSchema: z.object({}).strict(), annotations: readOnly,
   }, () => result(() => service.history()));
+
+  if (options.readiness) server.registerTool("get_readiness", {
+    description: "Check the PAJ public rate, authenticated bank-directory access when configured, Gateway chain support, and remaining live-integration blockers. This performs read-only requests. It never creates orders, requests OTPs, signs, or sends funds. An accessible API is not proof of a working bank payout rail.",
+    inputSchema: z.object({}).strict(), annotations: { ...readOnly, openWorldHint: true },
+  }, () => result(() => options.readiness!()));
 
   return server;
 }

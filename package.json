@@ -29,6 +29,8 @@
     "start": "node --env-file-if-exists=.env dist/cli.js",
     "dev": "node --env-file-if-exists=.env --import tsx src/cli.ts",
     "doctor": "node --env-file-if-exists=.env --import tsx src/cli.ts doctor",
+    "provider:check": "node --env-file-if-exists=.env --import tsx src/cli.ts provider-check",
+    "provider:login": "node --env-file-if-exists=.env --import tsx src/cli.ts provider-login",
     "demo": "node --import tsx scripts/demo.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "prepack": "npm run build"

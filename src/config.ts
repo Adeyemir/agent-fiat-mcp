@@ -3,26 +3,29 @@ import { join, resolve } from "node:path";
 import { units } from "./money.js";
 import { requireThat } from "./errors.js";
 import type { Mode } from "./types.js";
+import type { PajEnvironment } from "./providers/paj.js";
 
 export interface Config {
   mode: Mode; dataDir: string; maximumUnits: bigint; circleBin: string;
-  arcAddress?: string; pajToken?: string; verifiedSettlement: boolean;
-  providerMinNgn: bigint; providerMaxNgn: bigint;
+  arcAddress?: string; pajToken?: string; pajApiKey?: string; pajEmail?: string;
+  pajEnvironment: PajEnvironment; arcNetwork: "testnet" | "mainnet";
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const mode = env.OFFRAMP_MODE ?? "demo";
   requireThat(mode === "demo" || mode === "live", "INVALID_CONFIG", "OFFRAMP_MODE must be demo or live.");
-  const min = env.PAJ_MIN_NGN ?? "1000";
-  const max = env.PAJ_MAX_NGN ?? "5000000";
-  requireThat(/^[1-9]\d*$/.test(min) && /^[1-9]\d*$/.test(max) && BigInt(max) >= BigInt(min), "INVALID_CONFIG", "Configure valid whole-naira PAJ payout limits.");
+  const pajEnvironment = env.PAJ_ENVIRONMENT ?? "staging";
+  const arcNetwork = env.ARC_NETWORK ?? "testnet";
+  requireThat(pajEnvironment === "staging" || pajEnvironment === "production", "INVALID_CONFIG", "PAJ_ENVIRONMENT must be staging or production.");
+  requireThat(arcNetwork === "testnet" || arcNetwork === "mainnet", "INVALID_CONFIG", "ARC_NETWORK must be testnet or mainnet.");
   return {
     mode,
     dataDir: resolve(env.OFFRAMP_DATA_DIR ?? join(homedir(), ".local", "share", "naira-offramp-mcp")),
     maximumUnits: units(env.OFFRAMP_MAX_USDC ?? "100"), circleBin: env.CIRCLE_BIN ?? "circle",
     ...(env.CIRCLE_ARC_ADDRESS ? { arcAddress: env.CIRCLE_ARC_ADDRESS } : {}),
     ...(env.PAJ_SESSION_TOKEN ? { pajToken: env.PAJ_SESSION_TOKEN } : {}),
-    verifiedSettlement: env.PAJ_GATEWAY_SETTLEMENT_VERIFIED === "true",
-    providerMinNgn: BigInt(min), providerMaxNgn: BigInt(max),
+    ...(env.PAJ_API_KEY ? { pajApiKey: env.PAJ_API_KEY } : {}),
+    ...(env.PAJ_EMAIL ? { pajEmail: env.PAJ_EMAIL } : {}),
+    pajEnvironment, arcNetwork,
   };
 }

@@ -17,10 +17,10 @@ function data(response: Record<string, unknown>) {
   return response.structuredContent as { result?: Record<string, unknown>; error?: { code: string } };
 }
 
-async function setup(t: test.TestContext, supportsForms = true, allow = true) {
+async function setup(t: test.TestContext, supportsForms = true, allow = true, readiness?: () => Promise<unknown>) {
   const store = new Store(":memory:");
   const service = new PayoutService("demo", new DemoProvider(store), new DemoSettlement(store), store);
-  const server = createMcpServer(service);
+  const server = createMcpServer(service, readiness ? { readiness } : {});
   const client = new Client({ name: "test-human-client", version: "1" }, { capabilities: supportsForms ? { elicitation: { form: {} } } : {} });
   const prompts: string[] = [];
   if (supportsForms) client.setRequestHandler(ElicitRequestSchema, async request => {
@@ -78,6 +78,19 @@ test("a client without human forms cannot approve via tool arguments", async t =
   assert.equal(data(await client.callTool({ name: "execute_payout", arguments: { payoutId: quote.payoutId } })).error?.code, "HUMAN_APPROVAL_UNAVAILABLE");
 });
 
+test("integration readiness is available through MCP without payment approval or secret arguments", async t => {
+  let checks = 0;
+  const { client, prompts } = await setup(t, false, false, async () => { checks++; return { livePayoutsAvailable: false, provider: { sessionConfigured: false } }; });
+  const tools = await client.listTools();
+  assert.equal(tools.tools.length, 8);
+  const inspected = data(await client.callTool({ name: "get_readiness", arguments: {} })).result!;
+  assert.equal(inspected.livePayoutsAvailable, false);
+  assert.equal(prompts.length, 0);
+  assert.equal(checks, 1);
+  assert.equal((await client.callTool({ name: "get_readiness", arguments: { apiKey: "do-not-send-secrets" } })).isError, true);
+  assert.equal(checks, 1);
+});
+
 test("the real stdio CLI exposes MCP and persists a payout across process restarts", async t => {
   const dir = mkdtempSync(join(tmpdir(), "offramp-stdio-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -94,6 +107,7 @@ test("the real stdio CLI exposes MCP and persists a payout across process restar
   const first = await connect();
   let payoutId: unknown;
   try {
+    assert.ok((await first.listTools()).tools.some(tool => tool.name === "get_readiness"));
     await first.callTool({ name: "set_default_bank", arguments: bank });
     const quote = data(await first.callTool({ name: "prepare_payout", arguments: { amount: "15000", currency: "NGN" } })).result!;
     payoutId = quote.payoutId;

@@ -22,7 +22,7 @@ console.log(JSON.stringify({ data: { signature: '0x1234abcd' } }));
 `);
   chmodSync(binary, 0o700);
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  return { agent: new CircleAgent(binary, address), log };
+  return { agent: new CircleAgent(binary, address, "mainnet"), binary, log };
 }
 
 test("Circle signing uses the configured agent wallet on ARC and preserves typed data as one literal argument", async t => {
@@ -36,6 +36,13 @@ test("Circle signing uses the configured agent wallet on ARC and preserves typed
 test("outdated Circle CLI is rejected before requesting a signature", async t => {
   const { agent } = fakeCircle(t, "0.0.1");
   await assert.rejects(agent.signTypedData({}), (error: unknown) => error instanceof OfframpError && error.code === "CIRCLE_VERSION");
+});
+
+test("Circle signing defaults to Arc Testnet unless mainnet is explicitly selected", async t => {
+  const { binary, log } = fakeCircle(t);
+  await new CircleAgent(binary, address).signTypedData({});
+  const args = JSON.parse(readFileSync(log, "utf8"));
+  assert.equal(args[args.indexOf("--chain") + 1], "ARC-TESTNET");
 });
 
 test("Circle stderr and provider bodies cannot leak through public tool errors", async t => {

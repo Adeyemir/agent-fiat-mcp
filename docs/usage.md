@@ -11,10 +11,19 @@ Defaults require no environment file. For local overrides, copy `.env.example` t
 | `OFFRAMP_MAX_USDC` | `100` | Maximum total USDC debit per payout, including fees. |
 | `CIRCLE_BIN` | `circle` | Circle CLI executable for the signing scaffold/version diagnostic. |
 | `CIRCLE_ARC_ADDRESS` | unset | Optional address for the Circle CLI version diagnostic. This does not enable live payouts. |
+| `ARC_NETWORK` | `testnet` | Source network for readiness checks and explicit Circle helper network selection. |
+| `PAJ_ENVIRONMENT` | `staging` | PAJ API environment: `staging` or `production`. This is separate from the blockchain network. |
+| `PAJ_API_KEY` | unset | Business API key, used only by local provider login endpoints. |
+| `PAJ_EMAIL` | unset | Email for local PAJ login; otherwise entered interactively. |
+| `PAJ_SESSION_TOKEN` | unset | Optional session-token override for the selected PAJ environment. A private saved session is used otherwise. |
 
 The server does not install or update Circle, accept its Terms, authenticate, or ask for private keys. Circle Agent Wallet signing glue uses an existing local Circle CLI session. It is not connected to demo execution.
 
 `npm run doctor` reports configuration presence and live availability without printing secrets. In demo mode it does not call Circle unless `CIRCLE_ARC_ADDRESS` is configured, in which case it checks CLI version only. It never signs or pays.
+
+`npm run provider:check` makes read-only PAJ and Gateway API calls. It checks bank-directory access only when a session is already configured. It never initiates login, creates an order, or moves funds. It exits unsuccessfully when the public rate or Gateway check fails; missing authenticated access is reported in the JSON result. A fully successful read-only check still reports `livePayoutsAvailable: false` until settlement is implemented and verified.
+
+Provider login and private session handling are described in [provider setup](provider-setup.md). Saved PAJ session tokens are environment-specific, permission-restricted files in the private data directory; they contain no API key or OTP.
 
 ## Local approval fallback
 
