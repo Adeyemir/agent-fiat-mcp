@@ -24,5 +24,6 @@ export function wholeNaira(value: string): bigint {
 
 export function sameName(left: string, right: string): boolean {
   const normalise = (s: string) => s.toLocaleLowerCase("en").replace(/[^a-z0-9 ]/g, " ").trim().split(/\s+/).sort().join(" ");
-  return !!left.trim() && !!right.trim() && normalise(left) === normalise(right);
+  const a = normalise(left);
+  return a.length > 0 && a === normalise(right);
 }

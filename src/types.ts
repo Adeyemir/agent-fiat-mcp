@@ -48,4 +48,4 @@ export interface PayoutSummary {
   maximumDebitUsdc: string; source: "USDC on Arc"; expiresAt: string;
   bankPaid: boolean;
 }
-export type Approval = (summary: PayoutSummary) => Promise<boolean>;
+export type Approval = (summary: PayoutSummary, recipient: BankAccount) => Promise<boolean>;

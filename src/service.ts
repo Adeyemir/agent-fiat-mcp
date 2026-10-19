@@ -62,8 +62,9 @@ export class PayoutService {
         continue;
       }
       requireThat(total <= this.maximumUnits, "PAYOUT_LIMIT", "The quote including fees exceeds the configured per-payout USDC limit.");
-      const expiresAt = new Date(Math.min(Date.parse(order.expiresAt), Date.parse(plan.expiresAt))).toISOString();
-      requireThat(Date.parse(expiresAt) > this.now(), "QUOTE_EXPIRED", "The provider quote has expired. Prepare a new payout.");
+      const expiry = Math.min(Date.parse(order.expiresAt), Date.parse(plan.expiresAt));
+      requireThat(Number.isFinite(expiry) && expiry > this.now(), "QUOTE_EXPIRED", "The provider quote has expired or has an invalid expiry. Prepare a new payout.");
+      const expiresAt = new Date(expiry).toISOString();
       await this.settlement.validate(plan);
       const payout: Payout = {
         id: randomUUID(), mode: this.mode, bank, order, plan, state: "prepared", createdAt: new Date(this.now()).toISOString(), expiresAt,
@@ -82,12 +83,12 @@ export class PayoutService {
   }
 
   async execute(id: string, approve: Approval): Promise<PayoutSummary> {
-    let payout = this.load(id);
+    const payout = this.load(id);
     // A repeated call resumes status inspection; it never repeats payment submission.
     if (payout.state !== "prepared") return this.status(id);
     requireThat(Date.parse(payout.expiresAt) > this.now(), "QUOTE_EXPIRED", "This quote has expired. Prepare a new payout; it was not paid.");
     requireThat(BigInt(payout.plan.totalUnits) <= this.maximumUnits, "PAYOUT_LIMIT", "This quote exceeds the current per-payout USDC limit.");
-    requireThat(await approve(this.summary(payout)), "APPROVAL_REQUIRED", "The payout was not approved; no funds were sent.");
+    requireThat(await approve(this.summary(payout), payout.bank), "APPROVAL_REQUIRED", "The payout was not approved; no funds were sent.");
     requireThat(Date.parse(payout.expiresAt) > this.now(), "QUOTE_EXPIRED", "The quote expired while awaiting approval. Prepare a new payout.");
     // Claim before any authorisation. SQLite makes this atomic across local MCP processes.
     if (!this.store.claim(payout, "prepared", "authorising")) return this.status(id);
@@ -122,17 +123,25 @@ export class PayoutService {
     const payout = this.load(id);
     if (payout.state === "completed" || payout.state === "prepared" || payout.state === "authorising") return this.summary(payout);
     if (payout.state === "submitting") return this.summary(payout);
+    let settlement;
     if (payout.settlementId && payout.state !== "reconciliation_required") {
-      const settlement = await this.settlement.status(payout.settlementId);
-      payout.settlementStatus = settlement.status;
-      if (settlement.delivered) payout.state = "bank_pending";
+      settlement = await this.settlement.status(payout.settlementId);
     }
     // Check the bank-provider result separately. A chain receipt never proves bank credit.
     const provider = await this.provider.status(payout.order);
-    payout.providerStatus = provider.status;
-    if (provider.completed) payout.state = "completed";
-    this.store.save(payout);
-    return this.summary(payout);
+    // Merge into the latest state synchronously after the network calls. Another
+    // status request may already have recorded completion while these ran.
+    const current = this.load(id);
+    if (current.state === "completed") return this.summary(current);
+    const expectedState = current.state;
+    current.providerStatus = provider.status;
+    if (settlement) {
+      current.settlementStatus = settlement.status;
+      if (settlement.delivered && current.state === "settling") current.state = "bank_pending";
+    }
+    if (provider.completed) current.state = "completed";
+    this.store.saveIfState(current, expectedState);
+    return this.summary(this.load(id));
   }
 
   history() { return this.store.recent(this.mode).map(p => this.summary(p)); }
