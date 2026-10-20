@@ -4,6 +4,7 @@ import { z } from "zod";
 import { publicError, requireThat } from "./errors.js";
 import type { PayoutService } from "./service.js";
 import type { LiveService } from "./live-service.js";
+import type { LivePayoutSummary } from "./live-types.js";
 import type { BankAccount, PayoutSummary } from "./types.js";
 
 const bankSchema = z.object({
@@ -25,7 +26,19 @@ async function result(action: () => unknown | Promise<unknown>): Promise<CallToo
   }
 }
 
-export function payoutApprovalMessage(payout: PayoutSummary, bank: BankAccount): string {
+export function payoutApprovalMessage(payout: PayoutSummary | LivePayoutSummary, bank: BankAccount): string {
+  if ("estimatedReceiveNgn" in payout) return [
+    "Approve this real USDC on Arc → NGN payout.",
+    `Payout ID: ${payout.payoutId}`,
+    `Recipient: ${bank.accountName}; ${bank.bankName}; account ${bank.accountNumber}`,
+    `Estimated receive: NGN ${payout.estimatedReceiveNgn}. PAJ applies the rate when it observes the deposit; this NGN amount is not guaranteed.`,
+    `USDC sent to PAJ: ${payout.providerChargeUsdc}`,
+    `Estimated network fee: ${payout.estimatedNetworkFeeUsdc} USDC`,
+    `Estimated total debit: ${payout.estimatedTotalDebitUsdc} USDC`,
+    `${payout.budgetBasis === "requested" ? "Requested USDC budget" : "Configured estimated USDC spending limit"}: ${payout.budgetUsdc}; fee reserve: ${payout.networkFeeReserveUsdc} USDC. The reserve is retained in your wallet for gas, not an extra PAJ charge.`,
+    "Circle's CLI does not expose a hard network-fee cap. Actual network fees can vary; the total budget is checked against estimates before submission, not guaranteed on-chain.",
+    `Local approval expires: ${payout.approvalExpiresAt}. This is not a rate lock.`,
+  ].join("\n");
   return [
     payout.simulated ? "DEMO: simulated payout. No real money will move." : "Approve this bank payout.",
     `Payout ID: ${payout.payoutId}`,
@@ -42,7 +55,7 @@ export function createMcpServer(service: PayoutService | LiveService, options: {
   const server = new McpServer({ name: "naira-offramp-mcp", version: "0.1.0" }, {
     instructions: service.mode === "demo"
       ? "Explicit simulator: balances, rates, quotes and payouts are fabricated. Always identify simulated results. For the simulated recipient use Demo Bank / 0000000000 / DEMO USER. Real API diagnostics from get_readiness do not fund simulated payouts. Use the saved bank unless another is explicitly requested. USDC amounts are a total budget including fees. Prepare a quote and obtain human approval through elicitation before execution. A model cannot approve. Never automatically resend an uncertain payment. bankPaid=false means actual bank credit has not been confirmed."
-      : "Naira Offramp MCP uses real Circle Agent Wallet and PAJ APIs. get_balance reads actual USDC held on the configured Arc network; spendableUsdc=null means bank cashout availability is unknown, not zero. list_banks lists PAJ's Nigerian banks. set_default_bank verifies the exact account and full holder name with PAJ and, after human approval, saves the recipient locally for the selected provider environment and network. Use that saved recipient unless another is explicitly requested. Live Arc-to-NGN settlement is unfinished: no payout preparation or execution tools are available. Do not invent quotes, rates, balances or bank credits. get_readiness reports integration blockers and an indicative rate, which is not a payout quote. Never fall back to simulated payouts.",
+      : "Real Circle Agent Wallet and PAJ v2 integration for USDC on Arc to NGN. Authenticate PAJ with its local Business API key; no PAJ OTP session is needed. get_balance reads actual Arc USDC; spendableUsdc=null is unknown, not zero. set_default_bank registers/verifies the account with PAJ, checks the full holder name and obtains human approval to save locally. Use the saved recipient unless another is explicitly requested. prepare_payout creates a one-off Arc order. NGN is an estimated target, never guaranteed: PAJ settles at the rate when the deposit is observed. A USDC request budgets transfer plus estimated gas and retains a fee reserve; actual gas is not hard-capped by the Circle CLI, so never promise a guaranteed total debit. Show the complete quote and obtain human elicitation approval before execute_payout. Never automatically resend an uncertain payment or create a replacement payout for it. Provider COMPLETED is reported as provider_completed; bankPaid=false because bank credit has not been independently verified. Use payout_status to track an existing order. This direct Arc route does not use Gateway or a Solana standing address. Never fall back to simulation.",
     maxToolInputElements: 30,
   });
 
@@ -63,7 +76,7 @@ export function createMcpServer(service: PayoutService | LiveService, options: {
   }
 
   server.registerTool("get_balance", {
-    description: service.mode === "demo" ? "Inspect the explicitly simulated USDC payout ledger. This does not read a real wallet." : "Read the real USDC balance in the configured Circle Agent Wallet on Arc. No simulated fallback. spendableUsdc is unknown until bank settlement is connected. Never moves funds.",
+    description: service.mode === "demo" ? "Inspect the explicitly simulated USDC payout ledger. This does not read a real wallet." : "Read real USDC held in the Circle Agent Wallet on Arc. Payout spendability depends on the provider order and estimated network fee. Never moves funds.",
     inputSchema: z.object({}).strict(), annotations: { ...readOnly, openWorldHint: service.mode === "live" },
   }, () => result(() => service.balance()));
 
@@ -73,14 +86,14 @@ export function createMcpServer(service: PayoutService | LiveService, options: {
   }, () => result(() => service.defaultBank()));
 
   server.registerTool("set_default_bank", {
-    description: service.mode === "demo" ? "Save a simulated recipient after human approval. Only Demo Bank / 0000000000 / DEMO USER is accepted." : "Verify a Nigerian bank account and full holder name with PAJ, request human approval, then save the default recipient locally. Does not create a PAJ order or send funds.",
+    description: service.mode === "demo" ? "Save a simulated recipient after human approval. Only Demo Bank / 0000000000 / DEMO USER is accepted." : "Register/verify a Nigerian bank account and full holder name with PAJ v2, request human approval, then save locally. Registration creates a provider record even if local saving is declined. Never funds an order. Its returned Solana standing address is not used for Arc payouts.",
     inputSchema: bankSchema, annotations: write,
   }, input => result(() => {
     requireApprovalSupport();
     return service.setDefaultBank(input, bank => approve([
       bank.simulated ? "DEMO: save this simulated recipient?" : "Save this verified recipient for future payouts?",
       `Holder: ${bank.name}`, `Bank: ${bank.bank}`, `Account: ${bank.accountNumber}`,
-      ...("config" in service ? [`PAJ environment: ${service.config.pajEnvironment}`, `Arc source network: ${service.config.arcNetwork}`, "The verified recipient will be saved locally. No payout will be created."] : []),
+      ...("config" in service ? [`PAJ environment: ${service.config.pajEnvironment}`, `Arc source network: ${service.config.arcNetwork}`, "PAJ has registered/verified this account. Approve saving it locally for future Arc orders."] : []),
     ].join("\n")));
   }));
 
@@ -90,16 +103,12 @@ export function createMcpServer(service: PayoutService | LiveService, options: {
   }, () => result(() => service.banks()));
 
   if (options.readiness) server.registerTool("get_readiness", {
-    description: "Check real Arc wallet USDC and Arc Gateway deposit balances when configured, PAJ public rate, authenticated bank-directory access, Gateway chain support, and remaining live-integration blockers. This performs read-only requests. It never creates orders, requests OTPs, signs, or sends funds. An accessible API is not proof of a working bank payout rail.",
+    description: "Read PAJ v2 rates, bank access and current Arc availability using the Business API key; inspect the Circle wallet and optional Gateway deposit balance. Gateway is not required for direct Arc orders. Never registers banks, creates orders or moves funds. Read access does not prove bank delivery.",
     inputSchema: z.object({}).strict(), annotations: { ...readOnly, openWorldHint: true },
   }, () => result(() => options.readiness!()));
 
-  // Payment tools are only registered for the explicitly selected simulator.
-  // LiveService deliberately has no payment methods to accidentally call.
-  if (!("prepare" in service)) return server;
-
   server.registerTool("prepare_payout", {
-    description: "Prepare a quote; no funds move. NGN means exact naira to receive; USDC means maximum total spend including all fees. Defaults to the saved bank. Supply a bank only when the user explicitly requests another destination. Repeated calls create separate quotes.",
+    description: service.mode === "demo" ? "Prepare a simulated payout quote. NGN is exact simulated receive and USDC is the simulated total budget." : "Create a fresh PAJ Arc order; no funds move. NGN is an estimated receive target. USDC budgets payment plus estimated network fees with a retained reserve; gas is not hard-capped. Uses the saved bank unless another is explicitly requested. Repeated calls create separate provider orders. Never use an old order address or prepare a replacement for an uncertain payment.",
     inputSchema: z.object({
       amount: z.string().max(30).regex(/^(0|[1-9]\d*)(\.\d+)?$/).describe("Positive decimal text, e.g. 15000 or 10. Never use floating point numbers."),
       currency: z.enum(["NGN", "USDC"]),
@@ -108,12 +117,12 @@ export function createMcpServer(service: PayoutService | LiveService, options: {
   }, input => result(() => service.prepare({ amount: input.amount, currency: input.currency, ...(input.bank ? { bank: input.bank } : {}) })));
 
   server.registerTool("execute_payout", {
-    description: "Request human approval for the exact prepared quote, then execute it at most once. Never claims bank credit from a chain receipt alone. Repeated calls inspect the existing payout; uncertain submissions require reconciliation and must not be resent.",
+    description: "Obtain human approval of the prepared recipient, payment, indicative NGN and fee terms, re-check the existing order and fee, then submit once. Real mode transfers Arc USDC through Circle Agent Wallet. Repeated execution only inspects status; uncertain submissions require reconciliation and must not be resent.",
     inputSchema: z.object(idSchema).strict(), annotations: { ...write, idempotentHint: true },
   }, ({ payoutId }) => result(() => service.execute(payoutId, (payout, bank) => approve(payoutApprovalMessage(payout, bank)))));
 
   server.registerTool("payout_status", {
-    description: "Inspect an existing payout. Reports completed only after the payout provider confirms completion. A demo completion is simulated and always has bankPaid=false. Never sends funds.",
+    description: "Poll an existing payout without sending funds. Live provider COMPLETED becomes provider_completed and includes the provider's final NGN amount; bankPaid remains false until independent bank-credit evidence exists. ERROR reports failed with no automatic retry or refund. Demo completion remains explicitly simulated.",
     inputSchema: z.object(idSchema).strict(), annotations: { ...readOnly, openWorldHint: true },
   }, ({ payoutId }) => result(() => service.status(payoutId)));
 

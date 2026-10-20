@@ -1,210 +1,174 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PajClient, PAJ_USDC, type JsonRequest, type PajChain, type PajSession } from "../src/providers/paj.js";
+import { PajClient, PAJ_USDC, type JsonRequest } from "../src/providers/paj.js";
 import { OfframpError, publicError } from "../src/errors.js";
 import { loadConfig } from "../src/config.js";
-import { loadPajSession, savePajSession } from "../src/provider-session.js";
 import { inspectReadiness } from "../src/readiness.js";
 
 const code = (expected: string) => (error: unknown) => error instanceof OfframpError && error.code === expected;
-const verifiedBank = { bankId: "bank_1", bankName: "Demo Test Bank", accountNumber: "0123456789", accountName: "TEST USER" };
-const bankDirectory = [{ id: "bank_1", code: "999", name: "Demo Test Bank", country: "NG" }, { id: "bank_2", code: "998", name: "Other Country Bank", country: "GH" }];
-const rate = { baseCurrency: "USD", targetCurrency: "NGN", rate: 1500.12, type: "offRamp", createdAt: "2026-10-19T10:00:00.000Z" };
-const quotedOrder = { id: "order_1", address: "0x1111111111111111111111111111111111111111", mint: PAJ_USDC.MONAD.mainnet, currency: "NGN", amount: 10.1, fiatAmount: 15000, fee: 0.1 };
-
+const bank = { id: "bank_1", code: "999", name: "Example Bank", country: "NG" };
+const rates = {
+  offRampRate: { baseCurrency: "USD", targetCurrency: "NGN", rate: 1500, type: "offRamp", createdAt: "2026-10-20T10:00:00.000Z" },
+  onRampRate: { baseCurrency: "USD", targetCurrency: "NGN", rate: 1525, type: "onRamp" },
+};
+const chains = [{ chain: "ARC", name: "Arc", isActive: true }, { chain: "BASE", name: "Base", isActive: false }];
+const order = { id: "order_1", address: "0x2222222222222222222222222222222222222222", mint: PAJ_USDC.ARC, currency: "NGN", amount: 10.1, fiatAmount: 15000, fee: 0.1, chain: "ARC", status: "INIT", transactionType: "OFF_RAMP", createdAt: new Date().toISOString() };
 function stub(response: unknown) {
   const calls: { url: string; options: RequestInit }[] = [];
-  const request: JsonRequest = async (url, options = {}) => { calls.push({ url, options }); return response; };
+  const request: JsonRequest = async (url, options = {}) => { calls.push({ url, options }); return url.endsWith("/chains") ? chains : response; };
   return { request, calls };
 }
 
-test("public rates require no session and retain missing activity/expiry as unknown", async () => {
-  const { request, calls } = stub(rate);
-  const result = await new PajClient("staging", undefined, request).rate();
-  assert.equal(result.ngnPerUsdc, "1500.12");
+test("all v2 requests authenticate directly with the Business API key; rates include fees and are not locked", async () => {
+  const { request, calls } = stub(rates);
+  const client = new PajClient("production", "fake-api-key", request);
+  const result = await client.rate();
+  assert.equal(result.ngnPerUsdc, "1500");
   assert.equal(result.indicativeOnly, true);
-  assert.equal(result.active, null);
-  assert.equal(result.providerUpdatedAt, rate.createdAt);
-  assert.equal(calls[0]!.url, "https://api-staging.paj.cash/pub/rate/offRamp");
-  assert.equal(new Headers(calls[0]!.options.headers).has("Authorization"), false);
-});
-
-test("inactive or wrong-currency rates and imprecise amounts are rejected", async () => {
-  for (const patch of [{ isActive: false }, { targetCurrency: "GHS" }, { rate: "1.1234567" }, { rate: Number.NaN }, { rate: 10_000_000_000 }]) {
-    const { request } = stub({ ...rate, ...patch });
-    await assert.rejects(new PajClient("staging", undefined, request).rate());
+  assert.equal(result.feesIncluded, true);
+  assert.equal(result.providerUpdatedAt, rates.offRampRate.createdAt);
+  assert.equal((await client.rate("onRamp")).ngnPerUsdc, "1525");
+  assert.equal(calls[0]!.url, "https://api.paj.cash/pub/v2/rate?currency=NGN");
+  for (const call of calls) {
+    assert.equal(new Headers(call.options.headers).get("x-api-key"), "fake-api-key");
+    assert.equal(new Headers(call.options.headers).has("Authorization"), false);
   }
+  assert.equal(JSON.stringify(client).includes("fake-api-key"), false);
 });
 
-test("PAJ session endpoints alone receive the business key; OTPs are not stored on the client", async () => {
-  const session = { token: "x".repeat(700), expiresAt: new Date(Date.now() + 60_000).toISOString(), isActive: "true" };
-  const { request, calls } = stub(session);
-  const client = new PajClient("staging", undefined, request);
-  await client.initiateSession("test@example.invalid", "fake-business-key");
-  const verified = await client.verifySession("test@example.invalid", "123456", "fake-business-key");
-  assert.equal(verified.token.length, 700);
-  assert.equal(verified.environment, "staging");
-  assert.equal(new Headers(calls[0]!.options.headers).get("x-api-key"), "fake-business-key");
-  assert.equal(new Headers(calls[0]!.options.headers).has("Authorization"), false);
-  assert.deepEqual(JSON.parse(String(calls[0]!.options.body)), { email: "test@example.invalid" });
-  assert.equal(JSON.parse(String(calls[1]!.options.body)).otp, "123456");
-  assert.equal(JSON.stringify(client).includes("123456"), false);
-  assert.equal(JSON.stringify(client).includes("fake-business-key"), false);
-  await assert.rejects(client.banks(), code("PROVIDER_LOGIN_REQUIRED"));
-});
-
-test("inactive/expired sessions, malformed credentials and missing access fail before proceeding", async () => {
-  const { request } = stub({ token: "fake-token", expiresAt: "2000-01-01", isActive: "true" });
-  await assert.rejects(new PajClient("staging", undefined, request).verifySession("a@example.invalid", "123456", "fake-key"), code("INVALID_PROVIDER_SESSION"));
-  assert.throws(() => new PajClient("staging", "bad\r\nHeader:value"), code("INVALID_CONFIG"));
-  await assert.rejects(new PajClient("staging", undefined, request).banks(), code("PROVIDER_LOGIN_REQUIRED"));
-});
-
-test("bank resolution is restricted to NG and verifies the exact account and full holder name", async () => {
-  const calls: string[] = [];
-  const request: JsonRequest = async (url, options) => {
-    calls.push(url);
-    assert.equal(new Headers(options?.headers).get("Authorization"), "Bearer fake-session");
-    assert.equal(new Headers(options?.headers).has("x-api-key"), false);
-    return url.endsWith("/pub/bank") ? bankDirectory : { accountName: "USER TEST", accountNumber: "0123456789", bank: { id: "bank_1", country: "NG" } };
-  };
-  const client = new PajClient("production", "fake-session", request);
-  assert.equal((await client.banks()).length, 1);
-  const bank = await client.verifyBank({ bank: "999", accountNumber: "0123456789", expectedName: "TEST USER" });
-  assert.equal(bank.bankId, "bank_1");
-  assert.ok(calls.at(-1)!.includes("bankId=bank_1&accountNumber=0123456789"));
-  await assert.rejects(client.verifyBank({ bank: "998", accountNumber: "0123456789", expectedName: "TEST USER" }), code("BANK_SELECTION_REQUIRED"));
-  await assert.rejects(client.verifyBank({ bank: "999", accountNumber: "0123456789", expectedName: "ANOTHER PERSON" }), code("NAME_MISMATCH"));
-});
-
-test("bank resolution and storage reject altered account numbers or banks", async () => {
-  let changed = false;
-  const request: JsonRequest = async url => url.endsWith("/pub/bank") ? bankDirectory : { accountName: "TEST USER", accountNumber: changed ? "0123456789" : "1111111111", bank: { id: changed ? "bank_other" : "bank_1", country: "NG" } };
-  const client = new PajClient("staging", "fake-session", request);
-  const input = { bank: "999", accountNumber: "0123456789", expectedName: "TEST USER" };
-  await assert.rejects(client.verifyBank(input), code("BANK_DETAILS_CHANGED"));
-  changed = true;
-  await assert.rejects(client.verifyBank(input), code("BANK_DETAILS_CHANGED"));
-  const saved = stub({ id: "saved_1", ...verifiedBank, bank: "bank_1" });
-  assert.equal(await new PajClient("staging", "fake-session", saved.request).saveBank(verifiedBank), "saved_1");
-  assert.deepEqual(JSON.parse(String(saved.calls[0]!.options.body)), { bankId: "bank_1", accountNumber: "0123456789" });
-});
-
-test("nameless production bank records cannot break the directory or become selectable recipients", async () => {
-  const { request } = stub([
-    ...bankDirectory,
-    { id: "missing_name", code: "123", country: "NG" },
-    { id: "blank_name", code: "124", country: "NG", name: "   " },
-  ]);
-  const client = new PajClient("production", "fake-session", request);
-  assert.deepEqual(await client.banks(), [bankDirectory[0]]);
-  await assert.rejects(client.verifyBank({ bank: "missing_name", accountNumber: "0123456789", expectedName: "TEST USER" }), code("BANK_SELECTION_REQUIRED"));
-  await assert.rejects(client.verifyBank({ bank: "124", accountNumber: "0123456789", expectedName: "TEST USER" }), code("BANK_SELECTION_REQUIRED"));
-});
-
-test("order requests fix NGN and send the documented token/chain fields without adding a business fee", async () => {
-  const { request, calls } = stub(quotedOrder);
-  const response = await new PajClient("staging", "fake-session", request).createOfframp({ bankReference: "saved_1", accountNumber: "0123456789", receiveNgn: 15000n, chain: "MONAD", mint: PAJ_USDC.MONAD.mainnet });
-  const sent = JSON.parse(String(calls[0]!.options.body));
-  assert.equal(sent.fiatAmount, 15000);
-  assert.equal(sent.currency, "NGN");
-  assert.equal(sent.chain, "MONAD");
-  assert.equal(sent.bank, "saved_1");
-  assert.equal(sent.amount, undefined);
-  assert.equal(sent.businessUSDCFee, undefined);
-  assert.equal(response.usdc, "10.1");
-  assert.equal(response.providerFeeUsdc, "0.1");
-  assert.equal(response.expiresAt, undefined); // The API does not promise a TTL.
-});
-
-test("direct ARC orders, arbitrary tokens and unsafe numeric amounts are refused without an HTTP write", async () => {
-  const { request, calls } = stub(quotedOrder);
-  const client = new PajClient("staging", "fake-session", request);
-  const input = { bankReference: "bank_1", accountNumber: "0123456789", receiveNgn: 15000n, chain: "MONAD" as const, mint: PAJ_USDC.MONAD.mainnet };
-  await assert.rejects(client.createOfframp({ ...input, chain: "ARC" as PajChain }), code("UNSUPPORTED_SETTLEMENT_CHAIN"));
-  await assert.rejects(client.createOfframp({ ...input, mint: "0x1111111111111111111111111111111111111111" }), code("INVALID_PROVIDER_TOKEN"));
-  await assert.rejects(client.createOfframp({ ...input, receiveNgn: BigInt(Number.MAX_SAFE_INTEGER) + 1n }), code("INVALID_AMOUNT"));
+test("missing API keys, malformed keys and undocumented staging fail without an HTTP request", async () => {
+  const { request, calls } = stub(rates);
+  await assert.rejects(new PajClient("production", undefined, request).rate(), code("PROVIDER_API_KEY_REQUIRED"));
+  await assert.rejects(new PajClient("staging", "fake-key", request).rate(), code("PROVIDER_ENVIRONMENT_UNVERIFIED"));
+  assert.throws(() => new PajClient("production", "bad\r\nHeader:value", request), code("INVALID_CONFIG"));
   assert.equal(calls.length, 0);
 });
 
-test("changed quote amounts, chains, and case-sensitive token mints are rejected", async () => {
-  const input = { bankReference: "bank_1", accountNumber: "0123456789", receiveNgn: 15000n, chain: "MONAD" as const, mint: PAJ_USDC.MONAD.mainnet };
-  for (const patch of [{ fiatAmount: 14999 }, { chain: "SOLANA" }, { currency: "USD" }, { amount: "10.1234567" }]) {
-    const { request } = stub({ ...quotedOrder, ...patch });
-    await assert.rejects(new PajClient("staging", "fake-session", request).createOfframp(input));
+test("wrong-currency rates and imprecise monetary values are refused", async () => {
+  for (const patch of [{ targetCurrency: "GHS" }, { rate: "1.1234567" }, { rate: Number.NaN }, { rate: 10_000_000_000 }]) {
+    const { request } = stub({ ...rates, offRampRate: { ...rates.offRampRate, ...patch } });
+    await assert.rejects(new PajClient("production", "fake-key", request).rate());
   }
-  const mint = PAJ_USDC.SOLANA.mainnet;
-  const { request } = stub({ ...quotedOrder, mint: mint.toLowerCase(), address: mint });
-  await assert.rejects(new PajClient("staging", "fake-session", request).createOfframp({ ...input, chain: "SOLANA", mint }), code("INVALID_PROVIDER_ORDER"));
 });
 
-test("existing PAJ orders are checked by ID and immutable details before any funding integration", async () => {
+test("v2 bank verification registers by bank CODE and checks the exact returned account and full name", async () => {
+  const calls: { url: string; options: RequestInit }[] = [];
+  const request: JsonRequest = async (url, options = {}) => {
+    calls.push({ url, options });
+    return url.includes("/bank?") ? [bank, { ...bank, country: "GH", code: "998" }, { id: "nameless", code: "123", country: "NG" }] : { id: "reg_1", bank: bank.name, accountNumber: "0123456789", accountName: "USER TEST", address: "SolanaStandingAddressNeverForArc" };
+  };
+  const client = new PajClient("production", "fake-key", request);
+  const verified = await client.verifyBank({ bank: "999", accountNumber: "0123456789", expectedName: "TEST USER" });
+  assert.equal(verified.bankCode, "999");
+  assert.equal(verified.bankId, "bank_1");
+  assert.equal(calls[1]!.options.method, "POST");
+  assert.deepEqual(JSON.parse(String(calls[1]!.options.body)), { bankCode: "999", accountNumber: "0123456789" });
+  assert.equal(JSON.stringify(verified).includes("SolanaStandingAddress"), false);
+  await assert.rejects(client.verifyBank({ bank: "999", accountNumber: "0123456789", expectedName: "OTHER USER" }), code("NAME_MISMATCH"));
+  await assert.rejects(client.verifyBank({ bank: "998", accountNumber: "0123456789", expectedName: "TEST USER" }), code("BANK_SELECTION_REQUIRED"));
+});
+
+test("changed bank details and nameless directory entries cannot become recipients", async () => {
+  for (const patch of [{ accountNumber: "1111111111" }, { bank: "Another Bank" }]) {
+    const request: JsonRequest = async url => url.includes("/bank?") ? [bank] : { id: "reg_1", bank: bank.name, accountNumber: "0123456789", accountName: "TEST USER", ...patch };
+    await assert.rejects(new PajClient("production", "fake-key", request).verifyBank({ bank: "999", accountNumber: "0123456789", expectedName: "TEST USER" }), code("BANK_DETAILS_CHANGED"));
+  }
+  const { request } = stub([bank, { id: "blank", code: "123", country: "NG", name: " " }]);
+  assert.deepEqual(await new PajClient("production", "fake-key", request).banks(), [bank]);
+});
+
+test("direct Arc orders send the documented bankCode, chain and six-decimal USDC mint", async () => {
+  const { request, calls } = stub(order);
+  const result = await new PajClient("production", "fake-key", request).createOfframp({ bankCode: "999", accountNumber: "0123456789", receiveNgn: "15000" });
+  const sent = JSON.parse(String(calls[1]!.options.body));
+  assert.equal(calls[1]!.url, "https://api.paj.cash/pub/v2/offramp");
+  assert.deepEqual(sent, { bankCode: "999", accountNumber: "0123456789", currency: "NGN", chain: "ARC", mint: PAJ_USDC.ARC, fiatAmount: 15000 });
+  assert.equal(result.usdc, "10.1");
+  assert.equal(result.providerFeeUsdc, "0.1"); // Not added to amount again.
+});
+
+test("both amount fields, unsafe numeric amounts and inactive chains cannot create an order", async () => {
+  const { request, calls } = stub(order);
+  const client = new PajClient("production", "fake-key", request);
+  const input = { bankCode: "999", accountNumber: "0123456789" };
+  await assert.rejects(client.createOfframp({ ...input, usdc: "10", receiveNgn: "15000" }), code("INVALID_AMOUNT"));
+  await assert.rejects(client.createOfframp({ ...input, receiveNgn: "9007199254740992" }), code("INVALID_AMOUNT"));
+  assert.equal(calls.length, 0);
+  let writes = 0;
+  const inactive: JsonRequest = async (_url, options) => { if (options?.method === "POST") writes++; return [{ chain: "ARC", name: "Arc", isActive: false }]; };
+  await assert.rejects(new PajClient("production", "fake-key", inactive).createOfframp({ ...input, usdc: "10" }), code("PROVIDER_CHAIN_INACTIVE"));
+  assert.equal(writes, 0);
+});
+
+test("changed quote currency, mint, chain, amount, status or destination is refused", async () => {
+  for (const patch of [{ currency: "USD" }, { mint: "0x1111111111111111111111111111111111111111" }, { chain: "BASE" }, { amount: "10.1234567" }, { amount: "11" }, { status: "PENDDING" }, { address: "0x0000000000000000000000000000000000000000" }]) {
+    const { request } = stub({ ...order, ...patch });
+    await assert.rejects(new PajClient("production", "fake-key", request).createOfframp({ bankCode: "999", accountNumber: "0123456789", usdc: "10.1" }));
+  }
+});
+
+test("transaction polling uses the singular v2 path and validates immutable order details", async () => {
   let altered = false;
-  const request: JsonRequest = async () => ({ ...quotedOrder, amount: altered ? 20 : 10.1, status: "INIT", transactionType: "OFF_RAMP" });
-  const client = new PajClient("staging", "fake-session", request);
+  const calls: string[] = [];
+  const request: JsonRequest = async url => { calls.push(url); return { ...order, amount: altered ? 20 : 10.1 }; };
+  const client = new PajClient("production", "fake-key", request);
   const expected = await client.transaction("order_1");
+  assert.equal(calls[0], "https://api.paj.cash/pub/v2/transaction/order_1");
   await client.checkOrder(expected);
   altered = true;
   await assert.rejects(client.checkOrder(expected), code("PROVIDER_ORDER_CHANGED"));
-  await assert.rejects(client.transaction("../../other-account"), code("INVALID_PROVIDER_REFERENCE"));
+  await assert.rejects(client.transaction("../../another-business"), code("INVALID_PROVIDER_REFERENCE"));
 });
 
-test("private sessions are environment-specific, permission-restricted, and reject expiry", t => {
-  const dir = mkdtempSync(join(tmpdir(), "offramp-provider-session-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const config = loadConfig({ OFFRAMP_DATA_DIR: dir, PAJ_ENVIRONMENT: "staging" });
-  const session: PajSession = { environment: "staging", token: "fake-test-session", expiresAt: new Date(Date.now() + 60_000).toISOString() };
-  savePajSession(config, session);
-  const path = join(dir, "paj-session-staging.json");
-  assert.equal(loadPajSession(config)?.token, "fake-test-session");
-  assert.equal(statSync(path).mode & 0o777, 0o600);
-  assert.equal(readFileSync(path, "utf8").includes("otp"), false);
-  assert.equal(loadPajSession({ ...config, pajEnvironment: "production" }), undefined);
-  writeFileSync(path, JSON.stringify({ ...session, expiresAt: "2000-01-01" }));
-  assert.throws(() => loadPajSession(config), code("PROVIDER_SESSION_EXPIRED"));
+test("onramp orders bind the saved receiving wallet and stop on currently inactive Base", async () => {
+  const recipient = "0x1111111111111111111111111111111111111111";
+  const { request, calls } = stub({ ...order, transactionType: "ON_RAMP", recipient, accountNumber: "1234567890", accountName: "Paj Inc.(Pay NGN 15,000.00)", bank: "Example Bank" });
+  const client = new PajClient("production", "fake-key", request);
+  const result = await client.createOnramp({ receiveAddress: recipient, chain: "ARC", spendNgn: "15000" });
+  assert.equal(result.recipient, recipient);
+  assert.deepEqual(JSON.parse(String(calls[1]!.options.body)), { fiatAmount: 15000, currency: "NGN", chain: "ARC", mint: PAJ_USDC.ARC, recipient });
+  await assert.rejects(client.createOnramp({ receiveAddress: recipient, chain: "BASE", spendNgn: "15000" }), code("PROVIDER_CHAIN_INACTIVE"));
+  assert.equal(calls.filter(call => call.options.method === "POST").length, 1);
 });
 
-test("readiness performs only public reads when not logged in and reports actual chain overlap", async () => {
+test("readiness uses v2 reads and confirms the direct Arc route without a Gateway dependency", async () => {
   const calls: string[] = [];
   const request: JsonRequest = async (url, options = {}) => {
-    calls.push(url);
-    assert.ok(!options.method || options.method === "GET");
-    assert.equal(new Headers(options.headers).has("Authorization"), false);
-    if (url.includes("gateway-api")) return { domains: [{ chain: "Arc", domain: 26, network: "Testnet" }, { chain: "Solana", domain: 5, network: "Devnet" }] };
-    return rate;
+    calls.push(url); assert.equal(options.method, "GET");
+    assert.equal(new Headers(options.headers).get("x-api-key"), "fake-key");
+    return url.endsWith("/chains") ? chains : url.includes("/bank?") ? [bank] : rates;
   };
-  const config = loadConfig({ OFFRAMP_DATA_DIR: join(tmpdir(), "nonexistent-naira-offramp-profile"), ARC_NETWORK: "testnet" });
-  const result = await inspectReadiness(config, request);
-  assert.equal(result.livePayoutsAvailable, false);
-  assert.equal(result.provider.directArcSettlementDocumented, false);
-  assert.equal(result.provider.sessionConfigured, false);
-  assert.equal(result.gateway.ok && result.gateway.result.arcSourceAvailable, true);
-  assert.deepEqual(result.gateway.ok && result.gateway.result.providerSettlementOverlap, ["SOLANA"]);
-  assert.equal(calls.length, 2);
-  assert.equal(calls.some(url => url.includes("offramp") || url.includes("/initiate") || url.includes("/transfer")), false);
+  const result = await inspectReadiness(loadConfig({ PAJ_API_KEY: "fake-key" }), request);
+  assert.equal(result.provider.apiVersion, "v2");
+  assert.equal(result.provider.arcOrdersAvailable, true);
+  assert.equal(result.provider.directArcSettlementDocumented, true);
+  assert.equal(result.provider.loginRequired, false);
+  assert.equal(result.settlement.gatewayRequired, false);
+  assert.equal(result.provider.ngnAmountGuaranteed, false);
+  assert.equal(result.livePayoutsVerified, false);
+  assert.equal(calls.some(url => url.includes("gateway")), false);
+  assert.equal(JSON.stringify(result).includes("fake-key"), false);
 });
 
-test("a valid PAJ session proves API access, never marks the unverified payout route ready", async () => {
-  const request: JsonRequest = async (url, options = {}) => {
-    if (url.includes("gateway-api")) return { domains: [{ chain: "Arc", domain: 26, network: "Mainnet" }, { chain: "Solana", domain: 5, network: "Mainnet" }] };
-    if (url.endsWith("/pub/bank")) { assert.equal(new Headers(options.headers).get("Authorization"), "Bearer fake-session"); return bankDirectory; }
-    return rate;
-  };
-  const config = loadConfig({ PAJ_ENVIRONMENT: "production", ARC_NETWORK: "mainnet", PAJ_SESSION_TOKEN: "fake-session" });
-  const result = await inspectReadiness(config, request);
-  assert.equal(result.provider.accountAccess.ok, true);
-  assert.equal(result.livePayoutsAvailable, false);
-  assert.ok(result.blockers.some(blocker => blocker.code === "SETTLEMENT_ACCEPTANCE_UNVERIFIED"));
-  assert.equal(JSON.stringify(result).includes("fake-session"), false);
-});
-
-test("transport failures do not leak raw bodies or retry requests", async () => {
+test("legacy OTP sessions cannot authenticate v2 or trigger a new login", async t => {
+  const dir = mkdtempSync(join(tmpdir(), "offramp-v2-no-session-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, "paj-session-production.json"), JSON.stringify({ token: "fake-old-token", expiresAt: "2999-01-01" }));
   let calls = 0;
-  const request: JsonRequest = async () => { calls++; throw new Error("fake-private-provider-body"); };
-  try { await new PajClient("production", "fake-session", request).banks(); assert.fail("Expected failure"); }
+  const result = await inspectReadiness(loadConfig({ OFFRAMP_DATA_DIR: dir, PAJ_SESSION_TOKEN: "fake-old-token" }), async () => { calls++; return rates; });
+  assert.equal(result.provider.apiKeyConfigured, false);
+  assert.equal(result.provider.accountAccess.ok, false);
+  assert.equal(calls, 0);
+  assert.equal(JSON.stringify(result).includes("fake-old-token"), false);
+});
+
+test("provider failures neither expose raw bodies nor automatically retry order creation", async () => {
+  let writes = 0;
+  const request: JsonRequest = async url => { if (url.endsWith("/chains")) return chains; writes++; throw new Error("fake-private-provider-body"); };
+  try { await new PajClient("production", "fake-key", request).createOfframp({ bankCode: "999", accountNumber: "0123456789", usdc: "10" }); assert.fail("Expected failure"); }
   catch (error) { assert.equal(JSON.stringify(publicError(error)).includes("fake-private-provider-body"), false); }
-  assert.equal(calls, 1);
+  assert.equal(writes, 1);
 });

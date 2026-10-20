@@ -17,22 +17,22 @@ import type { JsonRequest } from "../src/providers/paj.js";
 
 const bank = { bank: "999", accountNumber: "0123456789", expectedName: "TEST USER" };
 const directory = [{ id: "bank_1", code: "999", name: "Example Bank", country: "NG" }];
-const toolNames = ["get_balance", "get_default_bank", "get_readiness", "list_banks", "set_default_bank"];
+const toolNames = ["execute_payout", "get_balance", "get_default_bank", "get_readiness", "list_banks", "payout_history", "payout_status", "prepare_payout", "set_default_bank"];
 const data = (response: Record<string, unknown>) => response.structuredContent as { result?: Record<string, unknown> | null; error?: { code: string } };
 
 async function setup(t: test.TestContext, options: { forms?: boolean; approve?: boolean; holderName?: string } = {}) {
   const store = new Store(":memory:");
-  const config = loadConfig({ PAJ_SESSION_TOKEN: "fake-session" });
+  const config = loadConfig({ PAJ_API_KEY: "fake-api-key" });
   const calls: { url: string; options: RequestInit }[] = [];
   const request: JsonRequest = async (url, init = {}) => {
     calls.push({ url, options: init });
-    assert.equal(init.method, "GET");
-    assert.equal(new Headers(init.headers).get("Authorization"), "Bearer fake-session");
-    if (url.endsWith("/pub/bank")) return directory;
-    assert.equal(new URL(url).pathname, "/pub/bank-account/confirm");
-    assert.equal(new URL(url).searchParams.get("accountNumber"), bank.accountNumber);
-    assert.equal(new URL(url).searchParams.get("bankId"), "bank_1");
-    return { accountNumber: bank.accountNumber, accountName: options.holderName ?? "USER TEST", bank: directory[0] };
+    assert.equal(new Headers(init.headers).get("x-api-key"), "fake-api-key");
+    assert.equal(new Headers(init.headers).has("Authorization"), false);
+    if (url.includes("/bank?")) { assert.equal(init.method, "GET"); return directory; }
+    assert.equal(new URL(url).pathname, "/pub/v2/bank-account");
+    assert.equal(init.method, "POST");
+    assert.deepEqual(JSON.parse(String(init.body)), { accountNumber: bank.accountNumber, bankCode: "999" });
+    return { id: "registered_1", accountNumber: bank.accountNumber, accountName: options.holderName ?? "USER TEST", bank: "Example Bank", address: "SolanaStandingAddressNeverUsedForArc" };
   };
   const service = new LiveService(config, store, request);
   const server = createMcpServer(service, { readiness: async () => ({ livePayoutsAvailable: false }) });
@@ -50,7 +50,7 @@ async function setup(t: test.TestContext, options: { forms?: boolean; approve?: 
   return { client, calls, prompts, store, service, config, request };
 }
 
-test("default runtime uses real services and creates no simulated funds or payment capability", t => {
+test("default runtime exposes the real payout implementation and creates no simulated funds", t => {
   const dir = mkdtempSync(join(tmpdir(), "offramp-live-runtime-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const runtime = createRuntime(loadConfig({ OFFRAMP_DATA_DIR: dir, PAJ_GATEWAY_SETTLEMENT_VERIFIED: "true", PAJ_SESSION_TOKEN: "dummy" }));
@@ -59,8 +59,8 @@ test("default runtime uses real services and creates no simulated funds or payme
     assert.equal(runtime.config.arcNetwork, "mainnet");
     assert.equal(runtime.config.pajEnvironment, "production");
     assert.ok(runtime.service instanceof LiveService);
-    assert.equal("execute" in runtime.service, false);
-    assert.equal("prepare" in runtime.service, false);
+    assert.equal("execute" in runtime.service, true);
+    assert.equal("prepare" in runtime.service, true);
     assert.equal(existsSync(join(dir, "offramp.sqlite")), false);
     const db = new DatabaseSync(join(dir, "offramp-live-production-mainnet.sqlite"));
     try {
@@ -89,14 +89,15 @@ test("PAJ resolves a bank before human approval, and only the verified recipient
   assert.equal(data(response).result?.simulated, false);
   assert.equal(data(response).result?.accountEnding, "6789");
   assert.equal(JSON.stringify(response).includes(bank.accountNumber), false);
-  assert.equal(JSON.stringify(response).includes("fake-session"), false);
+  assert.equal(JSON.stringify(response).includes("fake-api-key"), false);
   assert.equal(prompts.length, 1);
   assert.ok(prompts[0]!.includes(bank.accountNumber));
   assert.ok(prompts[0]!.includes("USER TEST"));
   assert.ok(prompts[0]!.includes("PAJ environment: production"));
   assert.ok(prompts[0]!.includes("Arc source network: mainnet"));
-  assert.ok(calls.some(call => call.url.includes("/pub/bank-account/confirm?")));
-  assert.equal(calls.some(call => call.options.method !== "GET"), false);
+  assert.ok(calls.some(call => call.url.includes("/pub/v2/bank-account")));
+  assert.equal(calls.filter(call => call.options.method === "POST").length, 1);
+  assert.equal(calls.some(call => call.url.includes("offramp")), false);
   const saved = data(await client.callTool({ name: "get_default_bank", arguments: {} })).result;
   assert.equal(saved?.bank, "Example Bank");
   assert.equal(saved?.accountEnding, "6789");
@@ -122,7 +123,7 @@ test("missing human forms or an approval flag cannot trigger real bank verificat
   assert.equal(calls.length, 0);
 });
 
-test("the default stdio server starts with real account tools and no simulated payout tools", async t => {
+test("the default stdio server exposes real tools and requires wallet setup instead of simulation", async t => {
   const dir = mkdtempSync(join(tmpdir(), "offramp-live-stdio-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined && !/^(OFFRAMP_|PAJ_|CIRCLE_|ARC_)/.test(entry[0])));

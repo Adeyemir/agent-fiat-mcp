@@ -2,9 +2,9 @@
 
 An open-source MCP integration for **USDC on Arc → NGN in a Nigerian bank account**, using **Circle Agent Wallet** and PAJ.
 
-> **In development.** The default MCP reads your real Arc wallet balance and supports PAJ bank verification and saving a default recipient. Real cashout settlement is unfinished: payout tools are unavailable until that route is connected and verified.
+> **In development.** Direct Arc payout preparation and human-approved Circle transfers are implemented against PAJ v2. Live wallet reads, PAJ API access and Arc availability have been checked. A real bank payout has not yet been tested or independently verified.
 
-The development simulator is an explicit opt-in. It is used to test the payout lifecycle while the real settlement integration is built.
+The normal route sends USDC from your Circle Agent Wallet on Arc to a fresh PAJ Arc order, then tracks the NGN payout. The development simulator is an explicit opt-in.
 
 ## Set up
 
@@ -19,7 +19,7 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Keep the default `OFFRAMP_MODE=live`. Connect your Circle Agent Wallet through the Circle CLI, save its Arc address in your private `CIRCLE_ARC_ADDRESS` configuration, and authenticate with your PAJ Business API credentials using [provider setup](docs/provider-setup.md). Normal requests use the saved configuration; you do not enter a wallet address for each request.
+Keep the default `OFFRAMP_MODE=live`. Connect your Circle Agent Wallet through the Circle CLI, save its Arc address in your private `CIRCLE_ARC_ADDRESS` configuration, and configure `PAJ_API_KEY` using [provider setup](docs/provider-setup.md). PAJ v2 uses that Business API key directly, without an email/OTP session. Normal requests use the saved wallet and bank; you do not enter a crypto destination address for cashouts.
 
 ## Connect to Codex or Claude Code
 
@@ -49,24 +49,29 @@ Start by asking:
 
 Provide the bank name/code, account number and expected full holder name in your private client. PAJ resolves the account; review the resolved details in the human confirmation dialog before saving.
 
-> Check what remains before real cashouts are available.
+> Prepare an estimated NGN 1,000 payout to my saved bank from my USDC on Arc.
 
-Saving a recipient requires **MCP form elicitation** and a human approval dialog. Tool arguments cannot grant approval. Clients without forms can still inspect balances, banks and integration status; [local bank setup](docs/usage.md#local-approval-fallback) is available.
+Review the expected NGN, USDC transfer, estimated gas, fee reserve and local approval window. The NGN amount and gas are estimates. Only then request execution and approve the human dialog.
 
-## Planned cashout flow
+> Show the status of that payout.
+
+Saving a recipient and executing a payout require **MCP form elicitation** and a human approval dialog. Tool arguments cannot grant approval. Clients without forms can still prepare and inspect payouts; [local human review](docs/usage.md#local-human-review) is available.
+
+## Cashout flow
 
 ```mermaid
 flowchart TD
     Request[Your request in Codex or Claude] --> MCP[MCP tools]
     MCP --> Bank[Saved bank or explicitly specified recipient]
-    Bank --> Quote[Quote NGN amount and maximum USDC debit]
-    Quote --> Approval[You review and approve]
-    Approval --> Settlement[Settlement adapter]
-    Settlement --> Provider[Payout provider]
-    Provider --> Status[Provider confirms bank payout]
+    Bank --> Quote[Preview indicative NGN and estimated USDC debit]
+    Quote --> Approval[You review indicative NGN and gas and approve]
+    Approval --> Settlement[Circle transfers Arc USDC to the PAJ order]
+    Settlement --> Provider[PAJ pays the Nigerian bank]
+    Provider --> Status[Poll the existing PAJ order]
+    Status --> Credit[Independently verify bank credit]
 ```
 
-Wallet reads and recipient setup are connected to real APIs. Quote creation, settlement, execution and payout confirmation in this flow are still being integrated. The payout lifecycle can be exercised through the optional simulator. [Live integration status](docs/live-integration.md) records the remaining work.
+The direct Arc order route is documented in PAJ's [current chain matrix](https://docs.paj.cash/concepts/chains). Its permanent bank-account address is Solana-only and is not used for Arc payouts. [Integration status](docs/live-integration.md) distinguishes implemented behavior from live verification.
 
 ## Tools
 
@@ -76,15 +81,19 @@ Wallet reads and recipient setup are connected to real APIs. Quote creation, set
 | `list_banks` | Read PAJ's Nigerian bank directory. |
 | `get_default_bank` | Show the saved recipient with a masked account number. |
 | `set_default_bank` | Verify the bank account and full name with PAJ, then save locally after human approval. |
-| `get_readiness` | Check real Arc wallet/Gateway balances, provider access, Gateway support, and remaining integration blockers. |
+| `prepare_payout` | Create a fresh PAJ Arc order and show indicative NGN and estimated gas. No transfer. |
+| `execute_payout` | Obtain human approval, re-check the order, then transfer Arc USDC once. |
+| `payout_status` | Poll the existing order; distinguish provider completion from verified bank credit. |
+| `payout_history` | Show recent local payouts with masked account numbers. |
+| `get_readiness` | Check PAJ v2 access, active Arc support, the wallet and optional Gateway balance. |
 
-Amounts are decimal strings. `spendableUsdc: null` means bank cashout availability is unknown while settlement is unfinished. Wallet failures return errors rather than simulated balances. Normal bank results show only the account ending; the approval dialog shows the full resolved recipient.
+Amounts are decimal strings. NGN requests are approximate receive targets: PAJ applies the rate when the deposit is observed. A USDC request leaves a configured gas reserve in the wallet and uses the remainder as the provider payment. The reserve is not a provider fee. Estimates are checked before submission, but Circle's CLI exposes no hard network-fee cap, so the total debit is not guaranteed. The approval dialog states this explicitly.
 
-`prepare_payout`, `execute_payout`, `payout_status` and `payout_history` are currently exposed only in the [explicit development simulator](docs/usage.md#development-simulator). They are not available in the default server.
+Approval expires locally after at most five minutes; it does not lock PAJ's rate. Expired or changed order addresses cannot be funded. An uncertain transfer is persisted and never automatically resent. `provider_completed` means PAJ reports completion; `bankPaid` remains false because independent bank-credit evidence is not collected by this MCP.
 
 ## Provider integration
 
-The PAJ HTTP client implements session login, NGN bank verification, rates, off-ramp orders, and order inspection against [PAJ's official API reference](https://github.com/paj-cash/paj_ramp/blob/main/lib/API_REFERENCE.md). Bank lookup and verification are wired into the default MCP. Order creation and funding remain separate until the settlement contract is confirmed.
+The PAJ client targets [the v2 API](https://docs.paj.cash/): `x-api-key` authentication, bank registration by code, rates, active chains, direct Arc offramp orders, and singular `/transaction/{id}` polling. It also implements raw onramp-order calls for Arc/Base, subject to the live active-chain flag; funding is not yet exposed as an MCP tool.
 
 Run a read-only check:
 
@@ -92,9 +101,9 @@ Run a read-only check:
 npm run provider:check
 ```
 
-Or ask your connected agent: **“Check my off-ramp integration readiness.”** Without provider credentials, this checks public API connectivity and reports missing authenticated access. The rate in a readiness result is indicative diagnostic data, not a payout quote. PAJ staging data is not a live market rate.
+Or ask your connected agent: **“Check my off-ramp integration readiness.”** This checks current provider access, live Arc availability and your Circle wallet. Gateway balance is optional diagnostics and is not required for this route. Missing API credentials are reported without trying a legacy login.
 
-If you already have a PAJ Business API key, follow [provider setup](docs/provider-setup.md) to authenticate locally. Keep API keys, OTPs and session tokens in local setup. API access alone does not verify the settlement rail. [Live integration status](docs/live-integration.md) lists the outstanding requirements.
+Keep API keys and Circle login codes in local setup. PAJ's v2 docs specify production; live payment preparation rejects testnet and unverified staging combinations. [Integration status](docs/live-integration.md) records the outstanding live bank test.
 
 ## Development
 

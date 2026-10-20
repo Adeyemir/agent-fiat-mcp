@@ -54,7 +54,7 @@ test("the live account service reads the wallet instead of the simulator's 100 U
   const service = new LiveService(loadConfig({ CIRCLE_BIN: binary, CIRCLE_ARC_ADDRESS: address }), store);
   assert.deepEqual(await service.balance(), {
     mode: "live", simulated: false, source: "USDC on Arc", network: "mainnet",
-    walletUsdc: "1.358872", spendableUsdc: null, livePayoutsAvailable: false,
+    walletUsdc: "1.358872", spendableUsdc: null, payoutExecutionImplemented: true, livePayoutsVerified: false,
   });
   assert.equal(store.demoBalance(), 100_000_000n);
 });
@@ -73,6 +73,24 @@ test("a missing token or an explicit zero balance is zero, not a positive amount
     const { agent } = fakeCircle(t, "1.2.2", false, { data: { balances } });
     assert.equal(await agent.usdcBalance(), "0");
   }
+});
+
+test("Arc gas estimates round native 18-decimal USDC up to six decimals without broadcasting", async t => {
+  const { agent, log } = fakeCircle(t, "1.2.2", false, { data: { blockchain: "ARC", medium: { networkFee: "0.018635180183073475", networkFeeRaw: "0.006546315214950975" } } });
+  assert.equal(await agent.estimateUsdcTransfer(address, "0.1"), "0.018636");
+  const args = JSON.parse(readFileSync(log, "utf8"));
+  assert.ok(args.includes("--estimate"));
+  assert.equal(args.includes("--idempotency-key"), false);
+});
+
+test("Circle transfers bind chain, token, source, recipient, amount and persisted idempotency reference", async t => {
+  const destination = "0x2222222222222222222222222222222222222222";
+  const key = "11111111-1111-4111-8111-111111111111";
+  const { agent, log } = fakeCircle(t, "1.2.2", false, { data: { id: "transaction_1", blockchain: "ARC", state: "CONFIRMED", sourceAddress: address, destinationAddress: destination, amounts: ["1.000000"], txHash: `0x${"a".repeat(64)}` } });
+  assert.equal((await agent.transferUsdc(destination, "1", key)).id, "transaction_1");
+  assert.deepEqual(JSON.parse(readFileSync(log, "utf8")), ["wallet", "transfer", destination, "--amount", "1", "--token", token.tokenAddress, "--address", address, "--chain", "ARC", "--idempotency-key", key, "--output", "json"]);
+  const wrong = fakeCircle(t, "1.2.2", false, { data: { id: "transaction_2", blockchain: "BASE", state: "CONFIRMED", sourceAddress: address, destinationAddress: destination, amounts: ["1"] } });
+  await assert.rejects(wrong.agent.transferUsdc(destination, "1", key), (error: unknown) => error instanceof OfframpError && error.code === "CIRCLE_TRANSFER_UNCERTAIN");
 });
 
 test("Arc balance checks refuse duplicate views, other networks and malformed amounts", async t => {

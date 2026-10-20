@@ -1,41 +1,54 @@
-# Live integration status
+# Direct Arc integration status
 
-**Live wallet and bank setup is the default. Arc-to-NGN cashout settlement is still unfinished and unverified.** `OFFRAMP_MODE=live` runs the real account tools; it does not register payout tools or substitute a simulator. No verification flag enables cashouts.
+**The PAJ v2 + Circle Agent Wallet direct Arc payout path is implemented. A real bank payout has not yet been funded or independently verified.** This distinction applies even when readiness reports the credentials and chain as available.
 
-## What exists
+## Current provider contract
 
-- A reusable payout service and SQLite store.
-- Default MCP tools for real wallet balances, the PAJ bank directory, account/name verification, local recipient setup after human approval, and integration status.
-- A payout lifecycle service with quote, approval, execution and inspection logic, currently exercised through explicitly selected simulation and tests.
-- A development simulator with separate storage, enabled only through `OFFRAMP_MODE=demo` or the isolated `npm run demo` script.
-- A Circle Agent Wallet helper that calls the Circle CLI with explicit `ARC-TESTNET` or `ARC` arguments, validates the CLI version, reads the six-decimal USDC token balance, and requests typed-data signatures. Testnet is the default; mainnet must be selected explicitly. No private key, Circle API key, or developer-controlled wallet is required by that helper. Balance reads have been verified against an authenticated mainnet wallet; signing has been tested using a fake executable, not a live signature.
-- A PAJ HTTP client for sessions, NGN bank verification, bank storage, rates, order creation, and order inspection; a local login helper stores the resulting session privately.
-- A read-only readiness command and MCP tool that query PAJ, Circle Agent Wallet, and Gateway and report unresolved integration requirements. Real wallet USDC and Arc Gateway deposit balances are reported separately from the simulated payout ledger.
+PAJ's [v2 documentation](https://docs.paj.cash/) supersedes the older GitHub API reference used by earlier commits. The [chain matrix](https://docs.paj.cash/concepts/chains) documents both onramp and offramp orders on Arc, using the USDC ERC-20 interface at `0x3600000000000000000000000000000000000000` with six decimals.
 
-The default runtime uses Circle Agent Wallet for actual balances and PAJ for recipient verification. Verified recipients are saved locally, separately from demo data. Gateway deposit, Gateway transfer, provider order funding, and real bank payment are not wired into payout execution.
+The route is:
 
-## Settlement research
+```mermaid
+flowchart LR
+    Wallet[Circle Agent Wallet on Arc] --> Order[Fresh PAJ Arc order address]
+    Order --> Bank[NGN to the verified Nigerian bank]
+```
 
-Circle Agent Wallet is the wallet product for this project. The signing helper is glue around that product's CLI. See the official [Agent Wallet signing guide](https://developers.circle.com/agent-stack/agent-wallets/wallet-operations/sign) and [supported blockchains](https://developers.circle.com/agent-stack/agent-wallets/supported-blockchains).
+Each order uses `bankCode` and `accountNumber`. No saved-account ID is passed. The standing address returned by bank registration is Solana-only and is not used. Gateway and intermediate settlement chains are not involved.
 
-Circle Gateway can move a deposited USDC balance between supported chains. Its [Forwarding Service](https://developers.circle.com/gateway/howtos/forwarding-service) can handle destination minting, and Gateway documents [ERC-1271 signatures](https://developers.circle.com/gateway/references/erc-1271) for smart contract accounts. Gateway supplies USDC settlement, not Nigerian bank payouts.
+## Implemented
 
-The reference [PayBot project](https://github.com/MELcodes99/paybot) uses PAJ for NGN payouts. PAJ's newer [V2 announcement](https://paj.cash/blog/PAJ-V2-Is-Live-And-It-Just-Changed-What-Crypto-Payments-Mean-in-Africa) and [official API reference](https://github.com/paj-cash/paj_ramp/blob/main/lib/API_REFERENCE.md) list `SOLANA` and `MONAD` as settlement chains. They do not document direct Arc settlement. Gateway's [published supported chains](https://developers.circle.com/gateway/references/supported-blockchains) and public `/v1/info` response were checked on 2026-10-19: Arc and Solana were present; Monad was absent. Chain lists may change, so the readiness command checks the selected Gateway environment again.
+- V2 `x-api-key` authentication for rates, chain availability, banks, registration, orders and transaction polling. PAJ OTP sessions are not read.
+- Full bank/account/name matching before human approval to save a default recipient.
+- A fresh Arc order for each prepared payout, with immutable order details and the source wallet persisted locally.
+- Circle CLI fee estimation and six-decimal USDC transfers with a stable idempotency key.
+- Human approval before transfer, followed by another order, expiry, balance and estimated-fee check.
+- A SQLite claim before submission; uncertain results and interrupted submissions are never automatically resent.
+- Provider polling for `INIT`, `PROCESSING`, `COMPLETED` and `ERROR`, without interpreting a chain receipt as bank credit.
+- An explicit development simulator in separate storage.
 
-An Arc-funded route needs a confirmed settlement arrangement with PAJ or another NGN provider. A Gateway destination mint must not be assumed to count as payment to a provider deposit address. The raw PAJ client refuses a made-up `chain: "ARC"` request.
+## Amount and timing semantics
 
-The PAJ reference does not specify an order expiry guarantee. Its bank parameter is shown as a bank-directory ID in section 9 and as a saved-account ID in section 14. Those semantics need confirmation before wiring live payout execution. The raw client requires the caller to supply the provider's bank reference explicitly and does not invent an expiry or add `fee` to the quoted `amount` a second time.
+[PAJ rates](https://docs.paj.cash/concepts/rates) include the configured business fee and are indicative. The applicable rate is the one observed when the deposit arrives. NGN targets cannot be presented as guaranteed receive amounts, and a provider fee must not be added to the deposit amount twice.
 
-These are integration options, not evidence that the combined route works. The customer's funding source remains Arc and the recipient remains a Nigerian bank account.
+For a USDC budget, the app retains `OFFRAMP_NETWORK_FEE_RESERVE_USDC` in the wallet and requests a provider order for the remainder. The reserve is not an extra fee paid to PAJ. Actual network gas is charged by Circle. The CLI estimates it but does not accept a hard fee cap; the requested total budget is therefore checked against estimates and is not guaranteed on-chain. The human approval states this limit.
 
-## Next implementation gate
+[PAJ funding addresses](https://docs.paj.cash/concepts/offramp) come from a pool. Unfunded orders release their address after about two hours, and order records are deleted after 72 hours. This app permits approval for at most five minutes, bounded by the provider's address window with a margin. It re-reads the exact order immediately before transfer and refuses stale or changed details. The five-minute window is local and does not lock the FX rate.
 
-Before wiring live execution, obtain the payout provider's API access and supported settlement contract:
+`COMPLETED` is reported as `provider_completed`, together with PAJ's final NGN amount. `bankCreditIndependentlyVerified` and `bankPaid` remain false because this MCP has no bank-credit evidence source. `ERROR` is a failed provider outcome requiring investigation; no refund or retry is invented.
 
-1. Confirm how an Arc-funded USDC payment is accepted, credited, and linked to an NGN order, including any intermediate settlement network.
-2. Confirm recipient verification, actual payout limits, fee semantics, quote expiry, order status, and how failed bank payouts are handled.
-3. Implement provider and settlement adapters against that confirmed contract, including reconciliation by the saved payment reference.
-4. Verify the Circle Agent Wallet signature path and source funding/deposit flow in the supported environment.
-5. Run a separately approved, small live payout and verify actual bank credit before describing the route as working.
+## Verification evidence
 
-The current checks and tests prove the simulated workflow, local control logic, API request/response validation using mocks, and public API connectivity. Production session login succeeded on 2026-10-20. The production bank directory included entries without names; the client excludes them from bank selection. Authenticated bank-directory access does not prove provider settlement acceptance, live wallet signing, settlement delivery, or NGN bank credit. See [provider setup and confirmation questions](provider-setup.md).
+Checked 2026-10-20:
+
+- The existing Business API key works with production v2 rates, chain and bank endpoints.
+- The live chain response reports Arc active and Base inactive. Runtime availability takes precedence over a static documentation list.
+- The Nigerian bank directory supplies 703 entries with usable names; nameless records are excluded.
+- Circle Agent Wallet reads and an Arc transfer estimate succeed. Native USDC gas is read at 18 decimals and rounded up into the six-decimal token view, without summing the wallet's two views.
+- Controlled tests exercise Arc order creation, source/destination binding, recipient approval, changing fees/orders, expiry, concurrent execution, restart after an ambiguous submission, provider errors and repriced final NGN.
+
+Real bank registration, a funded Arc order, actual Circle transfer submission and actual bank credit have not yet been tested for this account. The next step is [local bank setup and a reviewed small payout](provider-setup.md). No test so far has moved funds.
+
+## Funding the agent wallet
+
+PAJ also documents [fiat onramp orders](https://docs.paj.cash/concepts/onramp) delivering USDC to a recipient on Arc. The raw client implements Arc/Base onramp requests and checks the live active-chain flag. It does not expose onramping as an MCP tool yet, and no fiat purchase has been tested. A Base route must not be assumed available while its live flag is inactive.

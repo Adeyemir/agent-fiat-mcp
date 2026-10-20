@@ -1,39 +1,34 @@
-import { randomUUID } from "node:crypto";
 import { OfframpError, requireThat } from "../errors.js";
 import { jsonRequest, record } from "../http.js";
 import { decimal, sameName, units } from "../money.js";
 import type { BankAccount, BankInput } from "../types.js";
 
 export type PajEnvironment = "staging" | "production";
-export type PajChain = "SOLANA" | "MONAD";
+export type PajChain = "ARC" | "BASE";
 export type JsonRequest = (url: string, options?: RequestInit) => Promise<unknown>;
-export const PAJ_URLS = { staging: "https://api-staging.paj.cash", production: "https://api.paj.cash" } as const;
-// Circle's USDC address reference, checked 2026-10-19. Staging is a PAJ API
-// environment, not proof that a particular chain is using testnet tokens.
-export const PAJ_USDC = {
-  SOLANA: { mainnet: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", testnet: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU" },
-  MONAD: { mainnet: "0x754704Bc059F8C67012fEd69BC8A327a5aafb603", testnet: "0x534b2f3A21130d7a60830c2Df862319e593943A3" },
-} as const;
-
+export const PAJ_USDC = { ARC: "0x3600000000000000000000000000000000000000", BASE: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" } as const;
+export const PAJ_DOCUMENTED_CHAINS = ["SOLANA", "TON", "ETHEREUM", "BASE", "BSC", "MONAD", "ARC"] as const;
 export interface PajBank { id: string; name: string; code: string; country: "NG" }
-export interface PajSession { environment: PajEnvironment; token: string; expiresAt: string }
+export interface PajChainInfo { chain: string; name: string; isActive: boolean }
+export type PajStatus = "INIT" | "PROCESSING" | "COMPLETED" | "ERROR";
 export interface PajOrder {
   id: string; depositAddress: string; mint: string; currency: "NGN";
-  usdc: string; ngn: string; chain?: PajChain; status?: string;
-  transactionType?: string; providerFeeUsdc?: string; expiresAt?: string;
+  usdc: string; ngn: string; chain: PajChain; status: PajStatus;
+  transactionType: "OFF_RAMP" | "ON_RAMP"; providerFeeUsdc: string; createdAt: string;
+  recipient?: string; accountNumber?: string; accountName?: string; bank?: string;
 }
 
-function textField(value: unknown, field: string, maximum = 256): string {
+function text(value: unknown, field: string, maximum = 256): string {
   requireThat(typeof value === "string" && value.trim().length > 0 && value.length <= maximum && !/[\r\n]/.test(value), "INVALID_PROVIDER_RESPONSE", `PAJ returned an invalid ${field}.`);
   return value;
 }
 
-function amount(value: unknown, decimals = 6, allowZero = false): string {
+export function providerAmount(value: unknown, decimals = 6, allowZero = false): string {
   requireThat(typeof value === "string" || (typeof value === "number" && Number.isFinite(value)), "INVALID_PROVIDER_RESPONSE", "PAJ returned an invalid amount.");
-  const text = String(value);
-  if (allowZero && /^0(?:\.0{1,6})?$/.test(text)) return "0";
+  const valueText = String(value);
+  if (allowZero && /^0(?:\.0+)?$/.test(valueText) && valueText.length <= 30) return "0";
   try {
-    const parsed = units(text, decimals);
+    const parsed = units(valueText, decimals);
     requireThat(typeof value !== "number" || parsed <= BigInt(Number.MAX_SAFE_INTEGER), "INVALID_PROVIDER_RESPONSE", "PAJ returned an amount outside the safe numeric range.");
     return decimal(parsed, decimals);
   } catch { throw new OfframpError("INVALID_PROVIDER_RESPONSE", "PAJ returned an amount that cannot be represented exactly at the required precision."); }
@@ -44,144 +39,128 @@ function reference(value: string): string {
   return value;
 }
 
-function order(value: unknown): PajOrder {
+function jsonAmount(value: string, decimals = 6): number {
+  const parsed = units(value, decimals);
+  requireThat(parsed <= BigInt(Number.MAX_SAFE_INTEGER), "INVALID_AMOUNT", "The amount exceeds the provider's safe JSON numeric range.");
+  const numeric = Number(value);
+  requireThat(units(String(numeric), decimals) === parsed, "INVALID_AMOUNT", "The amount cannot be sent exactly to PAJ.");
+  return numeric;
+}
+
+function order(value: unknown, kind: "OFF_RAMP" | "ON_RAMP"): PajOrder {
   const data = record(value);
-  requireThat(data.currency === "NGN", "INVALID_PROVIDER_ORDER", "The PAJ order is not denominated in NGN.");
-  if (data.chain !== undefined) requireThat(data.chain === "SOLANA" || data.chain === "MONAD", "UNSUPPORTED_SETTLEMENT_CHAIN", "PAJ returned an undocumented settlement chain.");
-  const expiresAt = data.expiresAt;
-  if (expiresAt !== undefined) requireThat(typeof expiresAt === "string" && Number.isFinite(Date.parse(expiresAt)), "INVALID_PROVIDER_ORDER", "PAJ returned an invalid order expiry.");
+  requireThat(data.currency === "NGN" && data.transactionType === kind, "INVALID_PROVIDER_ORDER", "PAJ returned a different currency or transaction type.");
+  requireThat(data.chain === "ARC" || (kind === "ON_RAMP" && data.chain === "BASE"), "UNSUPPORTED_SETTLEMENT_CHAIN", "PAJ returned a different settlement chain.");
+  requireThat(typeof data.mint === "string" && data.mint.toLowerCase() === PAJ_USDC[data.chain].toLowerCase(), "INVALID_PROVIDER_TOKEN", "PAJ returned a different USDC contract.");
+  requireThat(["INIT", "PROCESSING", "COMPLETED", "ERROR"].includes(String(data.status)), "INVALID_PROVIDER_ORDER", "PAJ returned an undocumented order status.");
+  const createdAt = text(data.createdAt, "order creation time");
+  requireThat(Number.isFinite(Date.parse(createdAt)), "INVALID_PROVIDER_ORDER", "PAJ returned an invalid order creation time.");
+  const address = kind === "OFF_RAMP" ? text(data.address, "deposit address") : typeof data.address === "string" ? data.address : "";
+  if (kind === "OFF_RAMP") requireThat(/^0x[0-9a-f]{40}$/i.test(address) && !/^0x0{40}$/i.test(address), "INVALID_PROVIDER_ORDER", "PAJ returned an invalid Arc funding address.");
   return {
-    id: reference(textField(data.id, "order ID")), depositAddress: textField(data.address, "deposit address"),
-    mint: textField(data.mint, "token"), currency: "NGN", usdc: amount(data.amount), ngn: amount(data.fiatAmount, 2),
-    ...(data.chain ? { chain: data.chain as PajChain } : {}),
-    ...(data.status !== undefined ? { status: textField(data.status, "status") } : {}),
-    ...(data.transactionType !== undefined ? { transactionType: textField(data.transactionType, "transaction type") } : {}),
-    ...(data.fee !== undefined ? { providerFeeUsdc: amount(data.fee, 6, true) } : {}),
-    ...(typeof expiresAt === "string" ? { expiresAt } : {}),
+    id: reference(text(data.id, "order ID")), depositAddress: address, mint: data.mint,
+    currency: "NGN", usdc: providerAmount(data.amount), ngn: providerAmount(data.fiatAmount, 2),
+    chain: data.chain, status: data.status as PajStatus, transactionType: kind,
+    providerFeeUsdc: data.fee === undefined ? "0" : providerAmount(data.fee, 6, true), createdAt,
+    ...(typeof data.recipient === "string" ? { recipient: data.recipient } : {}),
+    ...(typeof data.accountNumber === "string" ? { accountNumber: data.accountNumber } : {}),
+    ...(typeof data.accountName === "string" ? { accountName: data.accountName } : {}),
+    ...(typeof data.bank === "string" ? { bank: data.bank } : {}),
   };
 }
 
-// Raw HTTP client for PAJ's published contract. It is deliberately separate from
-// PayoutService: no Arc settlement or provider-credit behavior is inferred here.
+// https://docs.paj.cash/: every v2 operation uses x-api-key. Legacy email/OTP
+// sessions are deliberately not read or accepted by this client.
 export class PajClient {
-  readonly baseUrl: string;
-  #token: string | undefined;
-  constructor(readonly environment: PajEnvironment = "staging", token?: string, private readonly request: JsonRequest = jsonRequest) {
-    requireThat(environment === "staging" || environment === "production", "INVALID_CONFIG", "PAJ_ENVIRONMENT must be staging or production.");
-    this.baseUrl = PAJ_URLS[environment];
-    if (token) {
-      requireThat(token.length <= 16_384 && !/\s/.test(token), "INVALID_CONFIG", "The PAJ session token is malformed. Authenticate again locally.");
-      this.#token = token;
+  readonly baseUrl = "https://api.paj.cash/pub/v2";
+  #apiKey: string | undefined;
+  constructor(readonly environment: PajEnvironment = "production", apiKey?: string, private readonly request: JsonRequest = jsonRequest) {
+    if (apiKey) {
+      requireThat(apiKey.length <= 16_384 && !/\s/.test(apiKey), "INVALID_CONFIG", "The PAJ Business API key is malformed.");
+      this.#apiKey = apiKey;
     }
   }
 
-  private async call(path: string, options: { authenticated?: boolean; body?: unknown; apiKey?: string } = {}): Promise<unknown> {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (options.authenticated) {
-      requireThat(this.#token, "PROVIDER_LOGIN_REQUIRED", "Log in to PAJ locally with provider:login, or configure a PAJ session token for the selected environment.");
-      headers.Authorization = `Bearer ${this.#token}`;
-    }
-    if (options.apiKey !== undefined) {
-      requireThat(options.apiKey.trim().length > 0 && options.apiKey.length <= 16_384 && !/\s/.test(options.apiKey), "PROVIDER_API_KEY_REQUIRED", "Configure your PAJ Business API key locally.");
-      headers["x-api-key"] = options.apiKey;
-    }
+  private async call(path: string, body?: unknown): Promise<unknown> {
+    requireThat(this.environment === "production", "PROVIDER_ENVIRONMENT_UNVERIFIED", "PAJ's v2 documentation specifies production only. A staging v2 contract has not been verified.");
+    requireThat(this.#apiKey, "PROVIDER_API_KEY_REQUIRED", "Configure your PAJ Business API key locally. V2 does not require email login or an OTP session.");
     try {
       return await this.request(`${this.baseUrl}${path}`, {
-        method: options.body === undefined ? "GET" : "POST", headers,
-        ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+        method: body === undefined ? "GET" : "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": this.#apiKey },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
     } catch (error) {
       if (error instanceof OfframpError) throw error;
-      throw new OfframpError("PROVIDER_REQUEST_FAILED", "The PAJ request did not complete. Provider response bodies and credentials are withheld.");
+      throw new OfframpError("PROVIDER_REQUEST_FAILED", "The PAJ request did not complete. No automatic order retry was made.");
     }
   }
 
-  async initiateSession(email: string, apiKey: string): Promise<void> {
-    requireThat(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254, "INVALID_EMAIL", "Provide your PAJ account email explicitly.");
-    await this.call("/pub/initiate", { apiKey, body: { email } });
+  async rate(direction: "offRamp" | "onRamp" = "offRamp") {
+    const response = record(record(await this.call("/rate?currency=NGN"))[`${direction}Rate`]);
+    requireThat(response.baseCurrency === "USD" && response.targetCurrency === "NGN" && response.type === direction, "INVALID_RATE", "PAJ did not return the requested USD-to-NGN rate.");
+    return { ngnPerUsdc: providerAmount(response.rate), indicativeOnly: true as const, feesIncluded: true as const, direction, observedAt: new Date().toISOString(), ...(typeof response.createdAt === "string" ? { providerUpdatedAt: response.createdAt } : {}) };
   }
 
-  async verifySession(email: string, otp: string, apiKey: string): Promise<PajSession> {
-    requireThat(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254, "INVALID_EMAIL", "Provide your PAJ account email explicitly.");
-    requireThat(/^[a-zA-Z0-9-]{4,32}$/.test(otp), "INVALID_OTP", "Enter the one-time code PAJ sent to your email.");
-    const response = record(await this.call("/pub/verify", { apiKey, body: { email, otp, device: { uuid: randomUUID(), device: "Desktop" } } }));
-    const token = textField(response.token, "session token", 16_384);
-    const expiresAt = textField(response.expiresAt, "session expiry");
-    requireThat(Number.isFinite(Date.parse(expiresAt)) && Date.parse(expiresAt) > Date.now() && !/\s/.test(token), "INVALID_PROVIDER_SESSION", "PAJ returned an expired or malformed session. Authenticate again locally.");
-    requireThat(response.isActive === true || response.isActive === "true", "INACTIVE_PROVIDER_ACCOUNT", "The PAJ account is not active.");
-    return { environment: this.environment, token, expiresAt };
+  async chains(): Promise<PajChainInfo[]> {
+    const response = await this.call("/chains");
+    requireThat(Array.isArray(response), "INVALID_PROVIDER_RESPONSE", "PAJ did not return its chain list.");
+    return response.map(value => { const data = record(value); requireThat(typeof data.isActive === "boolean", "INVALID_PROVIDER_RESPONSE", "PAJ returned an invalid chain availability flag."); return { chain: text(data.chain, "chain"), name: text(data.name, "chain name"), isActive: data.isActive }; });
   }
 
-  async rate() {
-    const response = record(await this.call("/pub/rate/offRamp"));
-    requireThat(response.baseCurrency === "USD" && response.targetCurrency === "NGN" && response.type === "offRamp" && (response.isActive === undefined || response.isActive === true), "INVALID_RATE", "PAJ did not return a usable USD-to-NGN off-ramp rate.");
-    return {
-      ngnPerUsdc: amount(response.rate), indicativeOnly: true as const, active: response.isActive === true ? true : null, observedAt: new Date().toISOString(),
-      ...(typeof response.createdAt === "string" ? { providerUpdatedAt: response.createdAt } : {}),
-    };
+  async requireActive(chain: PajChain) {
+    requireThat((await this.chains()).some(item => item.chain === chain && item.isActive), "PROVIDER_CHAIN_INACTIVE", `PAJ is not currently accepting orders on ${chain}.`);
   }
 
   async banks(): Promise<PajBank[]> {
-    const response = await this.call("/pub/bank", { authenticated: true });
+    const response = await this.call("/bank?country=NG");
     requireThat(Array.isArray(response), "INVALID_PROVIDER_RESPONSE", "PAJ did not return a bank directory.");
-    // PAJ's production directory includes entries without usable names. Keep
-    // them out of selection; never invent a bank name or choose by a missing one.
-    return response.map(record).filter(bank => bank.country === "NG" && typeof bank.name === "string" && bank.name.trim().length > 0).map(bank => ({
-      id: reference(textField(bank.id, "bank ID")), name: textField(bank.name, "bank name"), code: textField(bank.code, "bank code"), country: "NG" as const,
-    }));
+    return response.map(record).filter(bank => bank.country === "NG" && typeof bank.name === "string" && bank.name.trim().length > 0).map(bank => ({ id: text(bank.id, "bank ID"), name: text(bank.name, "bank name"), code: text(bank.code, "bank code"), country: "NG" as const }));
   }
 
   async verifyBank(input: BankInput): Promise<BankAccount> {
     requireThat(/^\d{10}$/.test(input.accountNumber) && input.expectedName.trim().length > 0, "INVALID_BANK_ACCOUNT", "Provide a ten-digit Nigerian account number and expected full account holder name.");
-    const directory = await this.banks();
     const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const matches = directory.filter(bank => bank.id === input.bank || bank.code === input.bank || normalise(bank.name) === normalise(input.bank));
-    requireThat(matches.length === 1, "BANK_SELECTION_REQUIRED", "Use the exact Nigerian bank name or bank code from PAJ's bank directory. Ambiguous bank names are not selected automatically.");
+    const matches = (await this.banks()).filter(bank => bank.id === input.bank || bank.code === input.bank || normalise(bank.name) === normalise(input.bank));
+    requireThat(matches.length === 1, "BANK_SELECTION_REQUIRED", "Use the exact Nigerian bank name or code. Ambiguous names are not selected automatically.");
     const bank = matches[0]!;
-    const response = record(await this.call(`/pub/bank-account/confirm?${new URLSearchParams({ bankId: bank.id, accountNumber: input.accountNumber })}`, { authenticated: true }));
-    const resolved = record(response.bank);
-    const name = textField(response.accountName, "account holder name");
-    requireThat(response.accountNumber === input.accountNumber && resolved.id === bank.id && resolved.country === "NG", "BANK_DETAILS_CHANGED", "PAJ resolved different bank account details. Do not proceed.");
-    requireThat(sameName(name, input.expectedName), "NAME_MISMATCH", "The resolved account holder name does not match the expected full name.");
-    return { bankId: bank.id, bankName: bank.name, accountNumber: input.accountNumber, accountName: name };
+    const data = record(await this.call("/bank-account", { bankCode: bank.code, accountNumber: input.accountNumber }));
+    requireThat(data.accountNumber === input.accountNumber && typeof data.bank === "string" && [bank.name, bank.id, bank.code].some(value => normalise(value) === normalise(data.bank as string)), "BANK_DETAILS_CHANGED", "PAJ resolved different bank account details. Do not proceed.");
+    const name = text(data.accountName, "account holder name");
+    requireThat(sameName(name, input.expectedName), "NAME_MISMATCH", "The resolved holder name does not match the expected full name.");
+    // Registration returns a Solana-only standing address. Arc payouts must
+    // always use the fresh funding address supplied by an Arc order instead.
+    return { bankId: bank.id, bankCode: bank.code, bankName: bank.name, accountNumber: input.accountNumber, accountName: name };
   }
 
-  async saveBank(bank: BankAccount): Promise<string> {
-    reference(bank.bankId);
-    requireThat(/^\d{10}$/.test(bank.accountNumber), "INVALID_BANK_ACCOUNT", "Use a verified Nigerian bank account.");
-    const response = record(await this.call("/pub/bank-account", { authenticated: true, body: { bankId: bank.bankId, accountNumber: bank.accountNumber } }));
-    requireThat(response.accountNumber === bank.accountNumber && response.bank === bank.bankId && typeof response.accountName === "string" && sameName(response.accountName, bank.accountName), "BANK_DETAILS_CHANGED", "PAJ saved different bank details. Do not proceed.");
-    return reference(textField(response.id, "saved account ID"));
+  async createOfframp(input: { bankCode: string; accountNumber: string; receiveNgn?: string; usdc?: string }): Promise<PajOrder> {
+    requireThat(/^[a-zA-Z0-9_-]{1,32}$/.test(input.bankCode) && /^\d{10}$/.test(input.accountNumber), "INVALID_BANK_ACCOUNT", "Use the verified bank code and ten-digit account number.");
+    requireThat((input.receiveNgn === undefined) !== (input.usdc === undefined), "INVALID_AMOUNT", "Specify either an NGN target or a USDC amount, not both.");
+    const amountBody = input.usdc !== undefined ? { amount: jsonAmount(input.usdc) } : { fiatAmount: jsonAmount(input.receiveNgn!, 2) };
+    await this.requireActive("ARC");
+    const result = order(await this.call("/offramp", { bankCode: input.bankCode, accountNumber: input.accountNumber, currency: "NGN", chain: "ARC", mint: PAJ_USDC.ARC, ...amountBody }), "OFF_RAMP");
+    requireThat(result.status === "INIT" && (input.usdc === undefined || result.usdc === decimal(units(input.usdc))) && (input.receiveNgn === undefined || result.ngn === decimal(units(input.receiveNgn, 2), 2)), "INVALID_PROVIDER_ORDER", "PAJ changed the requested quote or returned an order that is not awaiting funds.");
+    return result;
   }
 
-  async createOfframp(input: { bankReference: string; accountNumber: string; receiveNgn: bigint; chain: PajChain; mint: string }): Promise<PajOrder> {
-    reference(input.bankReference);
-    requireThat(/^\d{10}$/.test(input.accountNumber), "INVALID_BANK_ACCOUNT", "Use a verified Nigerian bank account.");
-    requireThat(input.chain === "SOLANA" || input.chain === "MONAD", "UNSUPPORTED_SETTLEMENT_CHAIN", "PAJ's published API supports SOLANA and MONAD settlement, not direct ARC. A verified settlement route is required.");
-    requireThat(typeof input.receiveNgn === "bigint" && input.receiveNgn > 0n && input.receiveNgn <= BigInt(Number.MAX_SAFE_INTEGER), "INVALID_AMOUNT", "Provide a whole-naira integer within PAJ's safe JSON numeric range.");
-    const sameMint = (left: string, right: string) => input.chain === "MONAD" ? left.toLowerCase() === right.toLowerCase() : left === right;
-    requireThat(Object.values(PAJ_USDC[input.chain]).some(mint => sameMint(mint, input.mint)), "INVALID_PROVIDER_TOKEN", "Use Circle-issued USDC on the explicitly chosen provider settlement network.");
-    const response = order(await this.call("/pub/offramp", { authenticated: true, body: {
-      bank: input.bankReference, accountNumber: input.accountNumber, currency: "NGN", fiatAmount: Number(input.receiveNgn),
-      chain: input.chain, mint: input.mint, description: "Naira Offramp MCP payout",
-    } }));
-    requireThat(response.ngn === input.receiveNgn.toString() && sameMint(response.mint, input.mint) && (!response.chain || response.chain === input.chain), "INVALID_PROVIDER_ORDER", "PAJ changed the requested payout amount, token or settlement chain. Do not fund this order.");
-    if (input.chain === "MONAD") requireThat(/^0x[0-9a-f]{40}$/i.test(response.depositAddress), "INVALID_PROVIDER_ORDER", "PAJ returned an invalid EVM deposit address.");
-    else requireThat(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(response.depositAddress), "INVALID_PROVIDER_ORDER", "PAJ returned an invalid settlement deposit address.");
-    // The API says to pay response.amount. Do not add response.fee a second time.
-    // It does not document a quote TTL; never invent a provider-guaranteed expiry.
-    return { ...response, chain: input.chain };
+  async createOnramp(input: { receiveAddress: string; chain: PajChain; spendNgn: string }): Promise<PajOrder> {
+    requireThat((input.chain === "ARC" || input.chain === "BASE") && /^0x[0-9a-f]{40}$/i.test(input.receiveAddress) && !/^0x0{40}$/i.test(input.receiveAddress), "INVALID_RECIPIENT", "Use the saved Circle Agent Wallet on the selected network.");
+    const fiatAmount = jsonAmount(input.spendNgn, 2);
+    await this.requireActive(input.chain);
+    const result = order(await this.call("/onramp", { fiatAmount, currency: "NGN", chain: input.chain, mint: PAJ_USDC[input.chain], recipient: input.receiveAddress }), "ON_RAMP");
+    requireThat(result.chain === input.chain && result.recipient?.toLowerCase() === input.receiveAddress.toLowerCase() && result.ngn === decimal(units(input.spendNgn, 2), 2) && result.status === "INIT" && typeof result.accountNumber === "string" && /^\d{10}$/.test(result.accountNumber) && result.bank && result.accountName, "INVALID_PROVIDER_ORDER", "PAJ returned different funding details. Do not transfer fiat.");
+    return result;
   }
 
-  async transaction(id: string): Promise<PajOrder> {
-    const response = order(await this.call(`/pub/transactions/${reference(id)}`, { authenticated: true }));
-    requireThat(response.id === id && response.transactionType === "OFF_RAMP" && response.status, "INVALID_PROVIDER_ORDER", "PAJ returned a different order or an invalid off-ramp status.");
-    return response;
+  async transaction(id: string, kind: "OFF_RAMP" | "ON_RAMP" = "OFF_RAMP"): Promise<PajOrder> {
+    const result = order(await this.call(`/transaction/${reference(id)}`), kind);
+    requireThat(result.id === id, "INVALID_PROVIDER_ORDER", "PAJ returned a different order.");
+    return result;
   }
 
   async checkOrder(expected: PajOrder) {
-    const current = await this.transaction(expected.id);
-    requireThat(current.status === "INIT" && current.depositAddress === expected.depositAddress && current.mint === expected.mint && current.usdc === expected.usdc && current.ngn === expected.ngn && (!current.chain || current.chain === expected.chain), "PROVIDER_ORDER_CHANGED", "The PAJ order changed or is no longer awaiting payment. Do not submit another payment.");
+    const current = await this.transaction(expected.id, expected.transactionType);
+    requireThat(current.status === "INIT" && current.depositAddress.toLowerCase() === expected.depositAddress.toLowerCase() && current.mint.toLowerCase() === expected.mint.toLowerCase() && current.usdc === expected.usdc && current.ngn === expected.ngn && current.chain === expected.chain && current.createdAt === expected.createdAt, "PROVIDER_ORDER_CHANGED", "The order changed or is no longer awaiting funds. Do not send another payment.");
     return current;
   }
 }

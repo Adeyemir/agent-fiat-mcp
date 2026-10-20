@@ -20,8 +20,8 @@ async function doctor() {
     mode: config.mode, simulated: config.mode === "demo", node: process.version,
     dataDir: config.dataDir, circleAgentWalletConfigured: Boolean(config.arcAddress), circleVersion,
     providerEnvironment: config.pajEnvironment, arcNetwork: config.arcNetwork,
-    providerSessionTokenInEnvironment: Boolean(config.pajToken), providerApiKeyInEnvironment: Boolean(config.pajApiKey), livePayoutsAvailable: false,
-    nextStep: config.mode === "demo" ? "Explicit simulation selected. Remove OFFRAMP_MODE=demo to use real wallet and bank tools." : "Connect this MCP server to read your real Arc balance and verify/save your bank. Payout tools remain unavailable until settlement is connected.",
+    providerApiVersion: "v2", providerLoginRequired: false, providerApiKeyInEnvironment: Boolean(config.pajApiKey), payoutExecutionImplemented: true, livePayoutsVerified: false,
+    nextStep: config.mode === "demo" ? "Explicit simulation selected. Remove OFFRAMP_MODE=demo to use real tools." : "Run provider:check, verify your bank, prepare a small payout and review its indicative NGN and network-fee terms before human approval. Real bank delivery has not yet been verified.",
   }, null, 2));
 }
 
@@ -32,15 +32,22 @@ async function main() {
     requireThat(payoutId === undefined, "INVALID_COMMAND", "provider-check takes no arguments.");
     const readiness = await inspectReadiness(loadConfig());
     console.log(JSON.stringify(readiness, null, 2));
-    if (!readiness.provider.indicativeRate.ok || !readiness.gateway.ok) process.exitCode = 1;
+    if (!readiness.provider.indicativeRate.ok || !readiness.provider.accountAccess.ok || !readiness.provider.arcOrdersAvailable) process.exitCode = 1;
     return;
   }
   if (command === "provider-login") {
     requireThat(payoutId === undefined, "INVALID_COMMAND", "provider-login takes no arguments. Credentials belong in your private local environment.");
     return providerLogin(loadConfig());
   }
+  if (command === "quote") {
+    requireThat(payoutId && extra.length === 1 && (extra[0] === "NGN" || extra[0] === "USDC"), "INVALID_COMMAND", "Use quote <amount> <NGN|USDC>. This prepares an order but does not send funds.");
+    const runtime = createRuntime();
+    try { console.log(JSON.stringify(await runtime.service.prepare({ amount: payoutId, currency: extra[0] }), null, 2)); }
+    finally { runtime.close(); }
+    return;
+  }
   if (command === "--help" || command === "help") {
-    console.log("naira-offramp-mcp [serve | doctor | provider-check | provider-login | set-bank | approve <payout-id>]\nDefault: real Arc wallet and PAJ bank tools over stdio. Live cashout settlement is not connected. OFFRAMP_MODE=demo explicitly enables simulated payouts.");
+    console.log("naira-offramp-mcp [serve | doctor | provider-check | set-bank | quote <amount> <NGN|USDC> | approve <payout-id>]\nDefault: real Circle Agent Wallet + PAJ v2 Arc payouts with human approval. NGN and network fees are estimates. OFFRAMP_MODE=demo explicitly selects simulation.");
     return;
   }
   requireThat(!command || ["serve", "set-bank", "approve"].includes(command), "INVALID_COMMAND", "Use serve, doctor, set-bank or approve <payout-id>.");
@@ -48,10 +55,6 @@ async function main() {
   if (command === "set-bank" || command === "approve") {
     requireThat(process.stdin.isTTY && process.stdout.isTTY, "INTERACTIVE_TERMINAL_REQUIRED", "Human review requires an interactive terminal. Piped input is not accepted.");
     const runtime = createRuntime();
-    if (command === "approve" && !("execute" in runtime.service)) {
-      runtime.close();
-      requireThat(false, "LIVE_ROUTE_UNAVAILABLE", "Live Arc-to-NGN settlement is not connected. No payout can be approved or sent.");
-    }
     const reader = createInterface({ input: process.stdin, output: process.stdout });
     const confirm = async (message: string) => (await reader.question(`${message}\nType APPROVE to continue: `)) === "APPROVE";
     try {
@@ -61,7 +64,6 @@ async function main() {
         const expectedName = await reader.question("Full account holder name: ");
         console.log(JSON.stringify(await runtime.service.setDefaultBank({ bank, accountNumber, expectedName }, account => confirm(`Save ${account.name}, ${account.bank}, ${account.accountNumber}? ${account.simulated ? "DEMO: no real verification." : `Verified with PAJ ${runtime.config.pajEnvironment}; stored locally for Arc ${runtime.config.arcNetwork}.`}`)), null, 2));
       } else {
-        requireThat("execute" in runtime.service, "LIVE_ROUTE_UNAVAILABLE", "Live settlement is not connected.");
         console.log(JSON.stringify(await runtime.service.execute(payoutId!, (payout, bank) => confirm(payoutApprovalMessage(payout, bank))), null, 2));
       }
     } finally { reader.close(); runtime.close(); }

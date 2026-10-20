@@ -6,8 +6,8 @@ import type { Mode } from "./types.js";
 import type { PajEnvironment } from "./providers/paj.js";
 
 export interface Config {
-  mode: Mode; dataDir: string; maximumUnits: bigint; circleBin: string;
-  arcAddress?: string; pajToken?: string; pajApiKey?: string; pajEmail?: string;
+  mode: Mode; dataDir: string; maximumUnits: bigint; networkFeeReserveUnits: bigint; circleBin: string;
+  arcAddress?: string; pajApiKey?: string;
   pajEnvironment: PajEnvironment; arcNetwork: "testnet" | "mainnet";
 }
 
@@ -22,10 +22,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     mode,
     dataDir: resolve(env.OFFRAMP_DATA_DIR ?? join(homedir(), ".local", "share", "naira-offramp-mcp")),
     maximumUnits: units(env.OFFRAMP_MAX_USDC ?? "100"), circleBin: env.CIRCLE_BIN ?? "circle",
+    networkFeeReserveUnits: units(env.OFFRAMP_NETWORK_FEE_RESERVE_USDC ?? "0.05"),
     ...(env.CIRCLE_ARC_ADDRESS ? { arcAddress: env.CIRCLE_ARC_ADDRESS } : {}),
-    ...(env.PAJ_SESSION_TOKEN ? { pajToken: env.PAJ_SESSION_TOKEN } : {}),
     ...(env.PAJ_API_KEY ? { pajApiKey: env.PAJ_API_KEY } : {}),
-    ...(env.PAJ_EMAIL ? { pajEmail: env.PAJ_EMAIL } : {}),
     pajEnvironment, arcNetwork,
   };
 }

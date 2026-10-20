@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { BankAccount, Payout, PayoutState } from "./types.js";
 import { requireThat } from "./errors.js";
+import type { LivePayout, LivePayoutState } from "./live-types.js";
 
 export class Store {
   private readonly db: DatabaseSync;
@@ -12,6 +13,7 @@ export class Store {
     this.db = new DatabaseSync(path);
     if (path !== ":memory:") chmodSync(path, 0o600);
     this.db.exec("PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payouts (id TEXT PRIMARY KEY, mode TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL)");
+    this.db.exec("CREATE TABLE IF NOT EXISTS live_payouts (id TEXT PRIMARY KEY, state TEXT NOT NULL, data TEXT NOT NULL)");
   }
   initialiseDemo() {
     this.db.exec("CREATE TABLE IF NOT EXISTS demo_transfers (id TEXT PRIMARY KEY, order_id TEXT UNIQUE NOT NULL, units TEXT NOT NULL)");
@@ -46,6 +48,20 @@ export class Store {
   }
   recent(mode: string): Payout[] {
     return this.db.prepare("SELECT data FROM payouts WHERE mode=? ORDER BY rowid DESC LIMIT 10").all(mode).map(row => JSON.parse(String(row.data)) as Payout);
+  }
+  insertLive(payout: LivePayout) {
+    this.db.prepare("INSERT INTO live_payouts(id,state,data) VALUES (?,?,?)").run(payout.id, payout.state, JSON.stringify(payout));
+  }
+  live(id: string): LivePayout {
+    const row = this.db.prepare("SELECT data FROM live_payouts WHERE id=?").get(id);
+    requireThat(row, "PAYOUT_NOT_FOUND", "No live payout with that ID exists in this profile.");
+    return JSON.parse(String(row.data)) as LivePayout;
+  }
+  saveLive(payout: LivePayout, expected: LivePayoutState): boolean {
+    return this.db.prepare("UPDATE live_payouts SET state=?,data=? WHERE id=? AND state=?").run(payout.state, JSON.stringify(payout), payout.id, expected).changes === 1;
+  }
+  recentLive(): LivePayout[] {
+    return this.db.prepare("SELECT data FROM live_payouts ORDER BY rowid DESC LIMIT 10").all().map(row => JSON.parse(String(row.data)) as LivePayout);
   }
   demoBalance(): bigint {
     return BigInt(String(this.db.prepare("SELECT value FROM settings WHERE key='demo_balance'").get()!.value));

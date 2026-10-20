@@ -8,6 +8,7 @@ export type { Config } from "./config.js";
 export { OfframpError } from "./errors.js";
 export { CircleAgent } from "./adapters/circle.js";
 export { PajClient } from "./providers/paj.js";
-export type { PajEnvironment, PajChain, PajBank, PajOrder, PajSession } from "./providers/paj.js";
+export type { PajEnvironment, PajChain, PajBank, PajOrder, PajChainInfo } from "./providers/paj.js";
 export { inspectReadiness } from "./readiness.js";
 export type * from "./types.js";
+export type * from "./live-types.js";

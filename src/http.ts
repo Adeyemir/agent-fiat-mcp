@@ -2,7 +2,7 @@ import { OfframpError } from "./errors.js";
 
 export async function jsonRequest(url: string, options: RequestInit = {}): Promise<unknown> {
   try {
-    const response = await fetch(url, { ...options, redirect: "error", signal: AbortSignal.timeout(25_000) });
+    const response = await fetch(url, { ...options, redirect: "error", signal: AbortSignal.timeout(35_000) });
     if (!response.ok) throw new OfframpError("PROVIDER_HTTP_ERROR", `A provider request failed (HTTP ${response.status}). Check account access and use payout_status after a payment submission.`);
     return await response.json();
   } catch (error) {
