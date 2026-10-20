@@ -6,6 +6,24 @@ Agents can use this MCP server to pay a business, supplier or person in NGN usin
 
 **Users do not need a PAJ account or API key.** The hosted backend manages PAJ access. Wallet authentication, approval and USDC transfers run locally through each user's Circle Agent Wallet.
 
+## Set up through your agent
+
+Copy this into a coding agent with access to your computer, such as a local Claude Code or Codex session:
+
+```text
+Set up naira-offramp-mcp@0.2.1 for this AI client. Follow the
+"Connect your agent" prompt at:
+https://github.com/Adeyemir/naira-offramp-mcp/blob/main/docs/prompts.md
+
+Check prerequisites, preserve my existing configuration, connect my
+Circle Agent Wallet on Arc, register the MCP tools and verify readiness.
+This is setup only; do not create or fund a payment.
+```
+
+Then use the [copyable prompts](docs/prompts.md) to check your balance, prepare a payment or track an existing payout. The same prompt guide is included in the npm package. Web chats without local access need a separate connection method.
+
+## Project scope
+
 Applications provide service discovery, bookings and merchant order confirmation around these payment tools. A successful bank payment alone does not establish that a merchant delivered the goods or issued a ticket.
 
 **Live route verified:** on October 20, 2026, Circle confirmed an Arc USDC transfer, PAJ returned a matching completed payout receipt, and the recipient confirmed receiving the NGN. See [verification evidence](docs/live-integration.md).
@@ -32,7 +50,7 @@ For a development checkout, see the [source installation](CONTRIBUTING.md#source
 Create your private configuration once:
 
 ```sh
-npx --yes naira-offramp-mcp@0.2.0 init
+npx --yes naira-offramp-mcp@0.2.1 init
 ```
 
 Edit the returned `provider.env` file, normally at `~/.local/share/naira-offramp-mcp/provider.env`. Set `CIRCLE_ARC_ADDRESS` to your existing Arc agent wallet and authenticate through the Circle CLI. The client connects to the hosted API automatically and creates its own private connection credentials. Existing configuration files are preserved. See [wallet setup](docs/provider-setup.md).
@@ -40,8 +58,8 @@ Edit the returned `provider.env` file, normally at `~/.local/share/naira-offramp
 Check the setup without moving funds:
 
 ```sh
-npx --yes naira-offramp-mcp@0.2.0 doctor
-npx --yes naira-offramp-mcp@0.2.0 provider-check
+npx --yes naira-offramp-mcp@0.2.1 doctor
+npx --yes naira-offramp-mcp@0.2.1 provider-check
 ```
 
 ## Connect your agent
@@ -53,18 +71,18 @@ The client launches the package when it connects and makes its tools available t
 ### Codex
 
 ```sh
-codex mcp add naira-offramp -- npx --yes naira-offramp-mcp@0.2.0
+codex mcp add naira-offramp -- npx --yes naira-offramp-mcp@0.2.1
 ```
 
 ### Claude Code
 
 ```sh
-claude mcp add --transport stdio naira-offramp -- npx --yes naira-offramp-mcp@0.2.0
+claude mcp add --transport stdio naira-offramp -- npx --yes naira-offramp-mcp@0.2.1
 ```
 
-For another compatible client, set the command to `npx` and arguments to `["--yes", "naira-offramp-mcp@0.2.0"]`. Reconnect your client after registration. See the official [Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
+For another compatible client, set the command to `npx` and arguments to `["--yes", "naira-offramp-mcp@0.2.1"]`. Reconnect your client after registration. See the official [Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
 
-You can alternatively run `npm install --global naira-offramp-mcp@0.2.0` and register the `naira-offramp-mcp` command. Both methods run the same MCP server. Configuration and payout history stay outside the installed package, so upgrades preserve them. These examples pin a version; update it deliberately when adopting a new release.
+You can alternatively run `npm install --global naira-offramp-mcp@0.2.1` and register the `naira-offramp-mcp` command. Both methods run the same MCP server. Configuration and payout history stay outside the installed package, so upgrades preserve them. These examples pin a version; update it deliberately when adopting a new release.
 
 Try these requests in your private client:
 
@@ -116,7 +134,7 @@ Tests use controlled PAJ responses, fake Circle executables and temporary databa
 
 The [Cloudflare backend](docs/backend.md) uses Workers and D1. It validates signed requests, isolates orders per installation, limits usage and records uncertain order creation without automatically retrying it. Developers can self-host the same backend with their own provider credentials.
 
-[Contributing](CONTRIBUTING.md) · [Configuration and CLI](docs/usage.md) · [Verification](docs/live-integration.md)
+[Copy a prompt](docs/prompts.md) · [Contributing](CONTRIBUTING.md) · [Configuration and CLI](docs/usage.md) · [Verification](docs/live-integration.md)
 
 ## License
 

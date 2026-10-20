@@ -1,10 +1,12 @@
 # Wallet and service setup
 
+For setup through your coding agent, use the [copyable setup prompt](prompts.md#connect-your-agent).
+
 ## Hosted service
 
 The standard npm client uses the project's hosted payout API. PAJ credentials stay on that server. Users do not need a PAJ account, a PAJ key or a manually entered app API key. The client creates and saves a private signing identity for its own connection.
 
-Run `npx --yes naira-offramp-mcp@0.2.0 init` once, then edit the private `provider.env` path it prints:
+Run `npx --yes naira-offramp-mcp@0.2.1 init` once, then edit the private `provider.env` path it prints:
 
 ```dotenv
 ARC_NETWORK=mainnet
@@ -28,8 +30,8 @@ Set its address as `CIRCLE_ARC_ADDRESS`. This is a one-time source-wallet config
 ## Check access
 
 ```sh
-npx --yes naira-offramp-mcp@0.2.0 doctor
-npx --yes naira-offramp-mcp@0.2.0 provider-check
+npx --yes naira-offramp-mcp@0.2.1 doctor
+npx --yes naira-offramp-mcp@0.2.1 provider-check
 ```
 
 `doctor` checks local configuration and CLI version. `provider-check` reads the NGN rate, active Arc support, bank directory, authenticated agent-wallet ownership and balance. It does not register recipients or create payment orders. For a source checkout, use `node dist/cli.js` in place of the pinned `npx` command.
@@ -40,7 +42,7 @@ npx --yes naira-offramp-mcp@0.2.0 provider-check
 
 Provide the bank name/code, ten-digit account number and expected full holder name when preparing a payment. PAJ resolves the account and the name must match. A one-off recipient does not become the local default.
 
-Saving a default is optional, through `set_default_bank` or `npx --yes naira-offramp-mcp@0.2.0 set-bank`. PAJ registration happens before approval to save locally, so the provider's registration can remain if local saving is declined.
+Saving a default is optional, through `set_default_bank` or `npx --yes naira-offramp-mcp@0.2.1 set-bank`. PAJ registration happens before approval to save locally, so the provider's registration can remain if local saving is declined.
 
 Arc payments fund the fresh address returned for each order. The standing address returned by PAJ bank registration is not used. Payment preparation requires production and Arc mainnet.
 
