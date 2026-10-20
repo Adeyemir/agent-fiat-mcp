@@ -6,7 +6,9 @@ This guide lives at `docs/prompts.md` in the repository. The npm package include
 
 ## Connect your agent
 
-Use this setup prompt in an agent that can run commands, install Node.js packages, write private configuration and reach Circle and the hosted payout API. The execution environment can be your computer or a web agent's cloud sandbox. Setup requires Node.js 22.13+ and Circle CLI 1.2.1+; the agent should check them first.
+This setup assumes Circle Agent Wallet is already authenticated in the same chat's execution environment. Reuse that existing Circle CLI and session. The npm package does not install Circle CLI, create wallets or log in for you.
+
+The agent needs command execution, Node.js 22.13+, private file storage and network access to Circle and the hosted payout API. Its existing Circle CLI must be version 1.2.1 or newer. If Circle is missing, logged out or too old, report the specific blocker; do not reinstall, upgrade or restart login as part of this setup.
 
 The available tools and network permissions determine what works. [Circle's setup guide](https://agents.circle.com/skills/setup.md) documents non-interactive login and sandbox networking. [Claude's code execution documentation](https://support.claude.com/en/articles/12111783-create-and-edit-files-with-claude) describes package installation and network access in web conversations. OpenAI documents separate [cloud browser and code/shell network capabilities](https://learn.chatgpt.com/docs/enterprise/chatgpt-work-cloud-security). Opening a website alone does not establish those permissions, and a cloud sandbox does not inherit your computer's Circle session or payout history.
 
@@ -19,35 +21,36 @@ The available tools and network permissions determine what works. [Circle's setu
 Payment execution currently requires an MCP client with form elicitation or human review in an interactive terminal. Do not substitute an agent-generated confirmation for those flows. An end-to-end payment from the ordinary Claude or ChatGPT web chat has not been verified for this project.
 
 ```text
-Set up Naira Offramp MCP in this AI client so I can pay Nigerian bank
-accounts from my Circle Agent Wallet USDC on Arc.
+My Circle Agent Wallet is already set up and logged in in this chat.
+Add Naira Offramp so I can pay Nigerian bank accounts from its USDC
+balance on Arc. Reuse the existing Circle executable and session.
 
 Follow https://github.com/Adeyemir/naira-offramp-mcp and its wallet setup
-guide. Use the npm package naira-offramp-mcp@0.2.1 through npx.
+guide. Use the npm package naira-offramp-mcp@0.2.2 through npx.
 
-1. Check command execution, Node.js 22.13+, Circle CLI 1.2.1+, private
-   file storage and network access to Circle and the hosted payout API.
-   Check whether this client supports registering stdio MCP servers.
-   Explain missing capabilities; do not reject a runtime just because
-   it is accessed through a web browser.
+1. Check the existing Circle executable, version and wallet session
+   using read-only commands. Preserve its existing network/proxy
+   settings. Do not install or upgrade Circle CLI, log out, restart
+   login, accept Terms or create another wallet. If a prerequisite is
+   missing, report it and stop. Also check Node.js 22.13+, private file
+   storage and network access to the hosted payout API.
 2. Initialize the private profile with
-   npx --yes naira-offramp-mcp@0.2.1 init.
+   npx --yes naira-offramp-mcp@0.2.2 init.
    Preserve existing configuration, connection identity and payout history.
-3. Reuse my authenticated Circle Agent Wallet on Arc mainnet. Set its
-   address in the private profile if needed. If several wallets match,
-   ask which to use. If login is needed, follow Circle's official setup
-   at https://agents.circle.com/skills/setup.md, including explicit
-   consent for its Terms and its two-step email/OTP login. Use a login
-   code only for its active authentication request; do not retain it or
-   expose persistent credentials. A cloud runtime needs its own session.
+3. Read my existing agent wallets with
+   circle wallet list --chain ARC --type agent --output json.
+   Keep an already-configured, authenticated source wallet. Otherwise
+   use the sole matching Arc mainnet agent wallet and set its address
+   in the private profile. If several match, ask which one to use.
+   Reuse the existing Circle binary path if it differs from circle.
 4. If this client supports MCP registration, register naira-offramp
-   using command npx and arguments ["--yes", "naira-offramp-mcp@0.2.1"].
+   using command npx and arguments ["--yes", "naira-offramp-mcp@0.2.2"].
    Keep unrelated MCP servers unchanged. Tell me if I need to restart
    or reconnect before continuing. Verify all nine tools, then call
    get_readiness and explain any blockers.
 5. If MCP registration is unavailable but command execution works, run
-   npx --yes naira-offramp-mcp@0.2.1 doctor
-   npx --yes naira-offramp-mcp@0.2.1 provider-check
+   npx --yes naira-offramp-mcp@0.2.2 doctor
+   npx --yes naira-offramp-mcp@0.2.2 provider-check
    Explain the observed results and say that CLI access was checked;
    do not claim the web chat has registered MCP tools.
 6. Report setup checks and payment-execution support separately.
@@ -66,6 +69,8 @@ order, fund the wallet or send money.
 ```
 
 For exact client commands, see [Connect your agent](../README.md#connect-your-agent). For wallet authentication and configuration, see [wallet setup](provider-setup.md).
+
+If you have not connected Circle in this environment yet, complete [Circle's own setup](https://agents.circle.com/skills/setup.md) separately before using this prompt. A Circle session in another chat or runtime is not automatically available here.
 
 ## Check your balance
 

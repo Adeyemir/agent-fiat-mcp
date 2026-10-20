@@ -11,15 +11,16 @@ Agents can use this MCP server to pay a business, supplier or person in NGN usin
 Copy this into an agent with command execution, private file storage and network access, on your computer or in a cloud sandbox:
 
 ```text
-Set up naira-offramp-mcp@0.2.1 for this AI client. Follow the
+Set up naira-offramp-mcp@0.2.2 for this AI client. Follow the
 "Connect your agent" prompt at:
 https://github.com/Adeyemir/naira-offramp-mcp/blob/main/docs/prompts.md
 
-Check runtime capabilities, preserve my existing configuration and
-connect my Circle Agent Wallet on Arc. Register MCP if this client
-supports it; otherwise use the documented CLI readiness checks.
-Report payment approval support separately. This is setup only;
-do not create or fund a payment.
+My Circle Agent Wallet is already logged in in this chat. Reuse its
+existing Circle CLI and session; do not reinstall, upgrade, log out,
+restart login or create a wallet. Detect my existing Arc agent wallet
+and preserve existing configuration. Register MCP if supported;
+otherwise use the documented CLI readiness checks. Report payment
+approval support separately. Do not create or fund a payment.
 ```
 
 Then use the [copyable prompts](docs/prompts.md) to check your balance, prepare a payment or track an existing payout. A prompt guide is included in the npm package; the repository has the current instructions. Browser-based agents can use command-enabled sandboxes when their permissions allow it. CLI access does not register native MCP tools, and payment execution needs a supported human approval flow. End-to-end payouts from ordinary web chats have not been verified.
@@ -45,14 +46,14 @@ Specify a recipient for each payment, or optionally save a default. The recipien
 
 ## Quick start
 
-Requires Node.js **22.13+**, Circle CLI **1.2.1+**, and a funded Circle Agent Wallet on Arc.
+Requires Node.js **22.13+**, Circle CLI **1.2.1+**, and a funded Circle Agent Wallet on Arc. If Circle is already installed and authenticated in this chat's execution environment, reuse it. This package does not install Circle CLI or start a wallet login.
 
 For a development checkout, see the [source installation](CONTRIBUTING.md#source-installation).
 
 Create your private configuration once:
 
 ```sh
-npx --yes naira-offramp-mcp@0.2.1 init
+npx --yes naira-offramp-mcp@0.2.2 init
 ```
 
 Edit the returned `provider.env` file, normally at `~/.local/share/naira-offramp-mcp/provider.env`. Set `CIRCLE_ARC_ADDRESS` to your existing Arc agent wallet and authenticate through the Circle CLI. The client connects to the hosted API automatically and creates its own private connection credentials. Existing configuration files are preserved. See [wallet setup](docs/provider-setup.md).
@@ -60,8 +61,8 @@ Edit the returned `provider.env` file, normally at `~/.local/share/naira-offramp
 Check the setup without moving funds:
 
 ```sh
-npx --yes naira-offramp-mcp@0.2.1 doctor
-npx --yes naira-offramp-mcp@0.2.1 provider-check
+npx --yes naira-offramp-mcp@0.2.2 doctor
+npx --yes naira-offramp-mcp@0.2.2 provider-check
 ```
 
 ## Connect your agent
@@ -73,18 +74,18 @@ The client launches the package when it connects and makes its tools available t
 ### Codex
 
 ```sh
-codex mcp add naira-offramp -- npx --yes naira-offramp-mcp@0.2.1
+codex mcp add naira-offramp -- npx --yes naira-offramp-mcp@0.2.2
 ```
 
 ### Claude Code
 
 ```sh
-claude mcp add --transport stdio naira-offramp -- npx --yes naira-offramp-mcp@0.2.1
+claude mcp add --transport stdio naira-offramp -- npx --yes naira-offramp-mcp@0.2.2
 ```
 
-For another compatible client, set the command to `npx` and arguments to `["--yes", "naira-offramp-mcp@0.2.1"]`. Reconnect your client after registration. See the official [Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
+For another compatible client, set the command to `npx` and arguments to `["--yes", "naira-offramp-mcp@0.2.2"]`. Reconnect your client after registration. See the official [Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
 
-You can alternatively run `npm install --global naira-offramp-mcp@0.2.1` and register the `naira-offramp-mcp` command. Both methods run the same MCP server. Configuration and payout history stay outside the installed package, so upgrades preserve them. These examples pin a version; update it deliberately when adopting a new release.
+You can alternatively run `npm install --global naira-offramp-mcp@0.2.2` and register the `naira-offramp-mcp` command. Both methods run the same MCP server. Configuration and payout history stay outside the installed package, so upgrades preserve them. These examples pin a version; update it deliberately when adopting a new release.
 
 Try these requests in your private client:
 

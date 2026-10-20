@@ -57,22 +57,22 @@ Use `payout_status` to poll that order. PAJ `COMPLETED` becomes `provider_comple
 For clients without human forms, prepare a one-off recipient in an interactive terminal:
 
 ```sh
-npx --yes naira-offramp-mcp@0.2.1 quote 5000 NGN --recipient
+npx --yes naira-offramp-mcp@0.2.2 quote 5000 NGN --recipient
 ```
 
-The command prompts for recipient details and opens an unfunded order. Alternatively, save an optional default with `npx --yes naira-offramp-mcp@0.2.1 set-bank`, then omit `--recipient` when quoting.
+The command prompts for recipient details and opens an unfunded order. Alternatively, save an optional default with `npx --yes naira-offramp-mcp@0.2.2 set-bank`, then omit `--recipient` when quoting.
 
 Only when you intend to transfer, review and approve the prepared order:
 
 ```sh
-npx --yes naira-offramp-mcp@0.2.1 approve YOUR_PREPARED_PAYOUT_ID
+npx --yes naira-offramp-mcp@0.2.2 approve YOUR_PREPARED_PAYOUT_ID
 ```
 
 Read the complete terms and type `APPROVE`. Piped approval is refused. Track the same payment with:
 
 ```sh
-npx --yes naira-offramp-mcp@0.2.1 status YOUR_PREPARED_PAYOUT_ID
-npx --yes naira-offramp-mcp@0.2.1 history
+npx --yes naira-offramp-mcp@0.2.2 status YOUR_PREPARED_PAYOUT_ID
+npx --yes naira-offramp-mcp@0.2.2 history
 ```
 
 The package command without a subcommand runs the stdio MCP server and waits for a client. Installing it alone does not connect an agent: register the server in your MCP client once, as shown in the [README](../README.md#connect-your-agent). For a source checkout, use `node dist/cli.js` in place of the pinned `npx` command.

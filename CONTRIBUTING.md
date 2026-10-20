@@ -64,4 +64,6 @@ The package is published to the public npm registry as `naira-offramp-mcp`. Main
 
 After publishing, verify the registry version and the pinned `npx` instructions from a clean directory.
 
+For a remote check of an already-published version, run the **Published npm and hosted API** GitHub Actions workflow with its exact npm version. It downloads the public package into a fresh GitHub-hosted Linux environment and checks MCP discovery plus read-only access to the deployed backend, without using a PAJ key or a Circle wallet session. This verifies package/service access; wallet reuse must be checked in the chat where the user is already authenticated.
+
 Keep `src/backend-endpoint.ts` set to the verified public deployment before releasing the hosted client. The package must never contain backend secrets or wallet credentials. Changes to bank verification, hosted authentication, ownership or request idempotency require relevant integration tests.
