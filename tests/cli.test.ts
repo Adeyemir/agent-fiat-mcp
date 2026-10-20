@@ -48,10 +48,9 @@ test("CLI refuses piped approval and one-off recipient entry before opening a pr
   ]) {
     await assert.rejects(run(args, { OFFRAMP_DATA_DIR: dir }), (error: unknown) => {
       const result = error as { stderr: string };
-      assert.equal(
-        JSON.parse(result.stderr.trim().split("\n").at(-1)!).code,
-        "INTERACTIVE_TERMINAL_REQUIRED",
-      );
+      const line = result.stderr.split(/\r?\n/).find((entry) => entry.startsWith("{"));
+      assert.ok(line, "CLI must emit a structured error");
+      assert.equal(JSON.parse(line).code, "INTERACTIVE_TERMINAL_REQUIRED");
       return true;
     });
   }
