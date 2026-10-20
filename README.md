@@ -25,7 +25,7 @@ Specify a recipient for each payment, or optionally save a default. The recipien
 
 Requires Node.js **22.13+**, Circle CLI **1.2.1+**, a funded Circle Agent Wallet on Arc, and a PAJ Business API key.
 
-> The npm release is being prepared. The commands below will work after `0.1.0` is published. Until then, use the [source installation](CONTRIBUTING.md#source-installation).
+For a development checkout, see the [source installation](CONTRIBUTING.md#source-installation).
 
 Create your private configuration once:
 

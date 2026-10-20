@@ -58,4 +58,4 @@ Include tests for behavior changed by a payment-related patch. Distinguish contr
 
 The package is published to the public npm registry as `naira-offramp-mcp`. Maintainers need an authenticated npm account with publishing access. Run the development checks and inspect `npm pack --dry-run` before publishing. `prepack` rebuilds `dist` so the tarball contains the current source. The `files` allowlist excludes credentials, databases, source fixtures and development scripts.
 
-After publishing, verify the registry version and the pinned `npx` instructions from a clean directory. Remove the README's pending-release notice once the first version is available.
+After publishing, verify the registry version and the pinned `npx` instructions from a clean directory.
