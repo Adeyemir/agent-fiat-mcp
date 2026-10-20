@@ -4,23 +4,25 @@
 
 Agents can use this MCP server to pay a business, supplier or person in NGN using funds held in Circle Agent Wallet. It verifies the recipient, prepares a payment for review, obtains human approval and tracks the payout through PAJ.
 
-**Users do not need a PAJ account or API key.** The hosted backend manages PAJ access. Wallet authentication, approval and USDC transfers run locally through each user's Circle Agent Wallet.
+**Users do not need a PAJ account or API key.** The hosted backend manages PAJ access. Wallet authentication and USDC transfers use Circle CLI in the user's agent execution environment. Payments require human approval through a supported MCP client or the interactive CLI.
 
 ## Set up through your agent
 
-Copy this into a coding agent with access to your computer, such as a local Claude Code or Codex session:
+Copy this into an agent with command execution, private file storage and network access, on your computer or in a cloud sandbox:
 
 ```text
 Set up naira-offramp-mcp@0.2.1 for this AI client. Follow the
 "Connect your agent" prompt at:
 https://github.com/Adeyemir/naira-offramp-mcp/blob/main/docs/prompts.md
 
-Check prerequisites, preserve my existing configuration, connect my
-Circle Agent Wallet on Arc, register the MCP tools and verify readiness.
-This is setup only; do not create or fund a payment.
+Check runtime capabilities, preserve my existing configuration and
+connect my Circle Agent Wallet on Arc. Register MCP if this client
+supports it; otherwise use the documented CLI readiness checks.
+Report payment approval support separately. This is setup only;
+do not create or fund a payment.
 ```
 
-Then use the [copyable prompts](docs/prompts.md) to check your balance, prepare a payment or track an existing payout. The same prompt guide is included in the npm package. Web chats without local access need a separate connection method.
+Then use the [copyable prompts](docs/prompts.md) to check your balance, prepare a payment or track an existing payout. A prompt guide is included in the npm package; the repository has the current instructions. Browser-based agents can use command-enabled sandboxes when their permissions allow it. CLI access does not register native MCP tools, and payment execution needs a supported human approval flow. End-to-end payouts from ordinary web chats have not been verified.
 
 ## Project scope
 

@@ -13,11 +13,11 @@ ARC_NETWORK=mainnet
 CIRCLE_ARC_ADDRESS=your_arc_agent_wallet_address
 ```
 
-`init` creates the file with mode `0600` and never overwrites an existing file. Each user authenticates to their own Circle Agent Wallet locally. Wallet sessions and signing keys are not sent to the payout backend.
+`init` creates the file with mode `0600` and never overwrites an existing file. Each user authenticates to their own Circle Agent Wallet in the agent's execution environment, which can be their computer or a cloud sandbox. A sandbox does not inherit the session or payout files from another environment. Wallet sessions and signing keys are not sent to the payout backend.
 
 ## Circle Agent Wallet
 
-Install Circle CLI 1.2.1 or newer and authenticate locally using [Circle's agent wallet setup](https://agents.circle.com/skills/setup.md). The MCP uses that existing session; private keys are not supplied to this project.
+Install Circle CLI 1.2.1 or newer and authenticate in that environment using [Circle's agent wallet setup](https://agents.circle.com/skills/setup.md). It documents a non-interactive email/OTP login and sandbox network requirements. The MCP uses that session; private keys are not supplied to this project.
 
 Find the agent wallet on Arc:
 
