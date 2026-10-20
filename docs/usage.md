@@ -40,7 +40,7 @@ PAJ's settled receipt can replace the original funding address with the sender a
 
 `npm run provider:check` reads v2 rates, active chains and banks, then checks the configured Circle wallet and optional Arc Gateway deposit balance. Gateway is not part of the direct payout route. This command does not register banks, create orders or transfer funds. The same operation is available as `get_readiness`.
 
-`livePayoutsAvailable` is a readiness result, not live delivery evidence. The first funded payout remains untested, reported separately by `livePayoutsVerified: false` and `remainingVerification`.
+`livePayoutsAvailable` reports that the configured checks passed. The runtime's `livePayoutsVerified: false` and `remainingVerification` flags are conservative: readiness checks neither run a payout nor ingest recipient confirmations. The [first live test](live-integration.md#verification-evidence) completed with a matching Circle/PAJ receipt and the recipient's confirmation of bank credit. That manual evidence is recorded separately from automated verification flags.
 
 ## Local human review
 

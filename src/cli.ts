@@ -21,7 +21,7 @@ async function doctor() {
     dataDir: config.dataDir, circleAgentWalletConfigured: Boolean(config.arcAddress), circleVersion,
     providerEnvironment: config.pajEnvironment, arcNetwork: config.arcNetwork,
     providerApiVersion: "v2", providerLoginRequired: false, providerApiKeyInEnvironment: Boolean(config.pajApiKey), payoutExecutionImplemented: true, livePayoutsVerified: false,
-    nextStep: config.mode === "demo" ? "Explicit simulation selected. Remove OFFRAMP_MODE=demo to use real tools." : "Run provider:check, verify your bank, prepare a small payout and review its indicative NGN and network-fee terms before human approval. Real bank delivery has not yet been verified.",
+    nextStep: config.mode === "demo" ? "Explicit simulation selected. Remove OFFRAMP_MODE=demo to use real tools." : "Run provider:check, choose a recipient and review a prepared payout's indicative NGN and network-fee terms before human approval. This command does not verify bank credit; live-test evidence is recorded in docs/live-integration.md.",
   }, null, 2));
 }
 

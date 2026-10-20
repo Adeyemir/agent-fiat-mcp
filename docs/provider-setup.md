@@ -26,9 +26,13 @@ npm run provider:check
 
 This reads v2 NGN onramp/offramp rates, the live chain list and the Nigerian bank directory. It checks the configured Circle wallet, with its Arc Gateway deposit balance reported separately as optional diagnostics. It does not register a bank, open an order or transfer money. Gateway is not required for direct Arc settlement.
 
-`livePayoutsAvailable` means the configured account/network checks passed and the implementation can be used. It does not mean a bank payout has been tested: `livePayoutsVerified` and independent bank-credit verification remain false.
+`livePayoutsAvailable` means the configured account/network checks passed and the implementation can be used. Readiness does not run a payout or ingest recipient confirmations, so its verification flags remain conservative. The [integration evidence](live-integration.md#verification-evidence) separately records the first successful live payout and the recipient's confirmation of bank credit.
 
-## Save the real bank once
+## Choose a recipient
+
+For a one-off recipient, supply the bank name/code, ten-digit account number and expected full holder name in `prepare_payout`'s `bank` input. The recipient need not be you, and this does not change your local default.
+
+### Optional default
 
 Use `set_default_bank` through MCP or enter details locally:
 
@@ -58,12 +62,12 @@ Only when you intend to move funds, approve the prepared payout through the MCP 
 npm start -- approve YOUR_PREPARED_PAYOUT_ID
 ```
 
-The terminal displays the complete terms and requires `APPROVE`. Piped approval and model-supplied approval arguments are refused. Normal cashouts reuse the saved bank and wallet; crypto destination addresses are not requested from the user.
+The terminal displays the complete terms and requires `APPROVE`. Piped approval and model-supplied approval arguments are refused. Cashouts use the saved wallet and either an explicitly specified recipient or an optional default bank; crypto destination addresses are not requested from the user. The local `quote` command uses the saved default; the MCP supports one-off recipients.
 
 ## Polling and recovery
 
-V2 uses `GET /pub/v2/transaction/{id}`. Provider `COMPLETED` becomes `provider_completed` in this MCP. PAJ describes it as NGN having been sent to the bank; the MCP does not independently observe bank credit, so `bankPaid` remains false. Verify the actual bank credit separately for the first live test.
+V2 uses `GET /pub/v2/transaction/{id}`. Provider `COMPLETED` becomes `provider_completed` in this MCP. PAJ describes it as NGN having been sent to the bank; the MCP does not independently observe bank credit, so `bankPaid` remains false. The recipient can separately confirm the actual bank credit.
 
 After a timeout, inspect the existing payout. Its provider order ID is retained; its local payout ID is also the Circle idempotency key. A known Circle transaction ID is saved. `reconciliation_required` is never automatically resubmitted, and `ERROR` does not trigger a replacement or automatic refund.
 
-The first end-to-end transfer and bank-credit test has not yet been performed. See [integration status](live-integration.md).
+The first live test completed with a confirmed Circle transfer, a matching completed PAJ receipt and the recipient's confirmation of bank credit. See [integration status](live-integration.md).

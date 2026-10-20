@@ -1,6 +1,6 @@
 # Direct Arc integration status
 
-**The PAJ v2 + Circle Agent Wallet direct Arc payout path has funded a reviewed live order. Circle confirmed the transfer and PAJ returned a matching completed payout receipt. Independent bank-credit verification remains outstanding.** Readiness alone does not establish delivery.
+**The PAJ v2 + Circle Agent Wallet direct Arc payout path has been tested end to end. Circle confirmed the transfer, PAJ returned a matching completed payout receipt, and the recipient confirmed receiving the NGN.** Bank receipt was confirmed by the recipient, rather than an automated bank feed. Readiness alone does not establish delivery.
 
 ## Current provider contract
 
@@ -48,7 +48,9 @@ Checked 2026-10-20:
 - Circle Agent Wallet reads and an Arc transfer estimate succeed. Native USDC gas is read at 18 decimals and rounded up into the six-decimal token view, without summing the wallet's two views.
 - Controlled tests exercise Arc order creation, source/destination binding, recipient approval, changing fees/orders, expiry, concurrent execution, restart after an ambiguous submission, provider errors and repriced final NGN.
 
-On 2026-10-20, a user-approved one-off recipient was verified, a production Arc order was funded, Circle reported the transfer complete, and PAJ reported the payout completed. The final PAJ signature, sender and recipient matched the confirmed Circle transfer. This is live transfer and provider-completion evidence; independent bank credit has not yet been confirmed. Automated tests use controlled responses and move no funds.
+On 2026-10-20, a user-approved one-off recipient was verified, a production Arc order was funded, Circle reported the transfer complete, and PAJ reported the payout completed. The final PAJ signature, sender and recipient matched the confirmed Circle transfer. The recipient subsequently confirmed receiving the fiat in their bank account. This completes the first live test with bank receipt confirmed by the recipient. No bank statement or automated bank feed was queried. Automated tests use controlled responses and move no funds.
+
+The runtime's verification flags remain conservative: readiness checks do not run a payout or ingest recipient confirmations, and payout status does not query bank credit. The recipient's confirmation above is manual test evidence; it does not change `bankPaid` or `bankCreditIndependentlyVerified` in automated tool results.
 
 ## Funding the agent wallet
 

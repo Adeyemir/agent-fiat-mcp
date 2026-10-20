@@ -2,7 +2,7 @@
 
 An open-source MCP integration for **USDC on Arc → NGN in a Nigerian bank account**, using **Circle Agent Wallet** and PAJ.
 
-> **In development.** A reviewed live Arc USDC transfer has been confirmed by Circle and matched to PAJ's completed payout receipt. Independent confirmation of bank credit remains outstanding.
+> **In development; first live payout confirmed end to end.** Circle confirmed the Arc USDC transfer, PAJ returned a matching completed payout receipt, and the recipient confirmed receiving the NGN in their bank account. Bank receipt was confirmed by the recipient; the MCP does not query bank balances.
 
 The normal route sends USDC from your Circle Agent Wallet on Arc to a fresh PAJ Arc order, then tracks the NGN payout. The development simulator is an explicit opt-in.
 
@@ -109,7 +109,7 @@ npm run provider:check
 
 Or ask your connected agent: **“Check my off-ramp integration readiness.”** This checks current provider access, live Arc availability and your Circle wallet. Gateway balance is optional diagnostics and is not required for this route. Missing API credentials are reported without trying a legacy login.
 
-Keep API keys and Circle login codes in local setup. PAJ's v2 docs specify production; live payment preparation rejects testnet and unverified staging combinations. [Integration status](docs/live-integration.md) records the outstanding live bank test.
+Keep API keys and Circle login codes in local setup. PAJ's v2 docs specify production; live payment preparation rejects testnet and unverified staging combinations. [Integration status](docs/live-integration.md) records the completed live test and how receipt was confirmed.
 
 ## Development
 
