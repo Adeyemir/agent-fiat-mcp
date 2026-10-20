@@ -124,7 +124,9 @@ export class PajClient {
   async banks(): Promise<PajBank[]> {
     const response = await this.call("/pub/bank", { authenticated: true });
     requireThat(Array.isArray(response), "INVALID_PROVIDER_RESPONSE", "PAJ did not return a bank directory.");
-    return response.map(record).filter(bank => bank.country === "NG").map(bank => ({
+    // PAJ's production directory includes entries without usable names. Keep
+    // them out of selection; never invent a bank name or choose by a missing one.
+    return response.map(record).filter(bank => bank.country === "NG" && typeof bank.name === "string" && bank.name.trim().length > 0).map(bank => ({
       id: reference(textField(bank.id, "bank ID")), name: textField(bank.name, "bank name"), code: textField(bank.code, "bank code"), country: "NG" as const,
     }));
   }

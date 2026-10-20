@@ -93,6 +93,18 @@ test("bank resolution and storage reject altered account numbers or banks", asyn
   assert.deepEqual(JSON.parse(String(saved.calls[0]!.options.body)), { bankId: "bank_1", accountNumber: "0123456789" });
 });
 
+test("nameless production bank records cannot break the directory or become selectable recipients", async () => {
+  const { request } = stub([
+    ...bankDirectory,
+    { id: "missing_name", code: "123", country: "NG" },
+    { id: "blank_name", code: "124", country: "NG", name: "   " },
+  ]);
+  const client = new PajClient("production", "fake-session", request);
+  assert.deepEqual(await client.banks(), [bankDirectory[0]]);
+  await assert.rejects(client.verifyBank({ bank: "missing_name", accountNumber: "0123456789", expectedName: "TEST USER" }), code("BANK_SELECTION_REQUIRED"));
+  await assert.rejects(client.verifyBank({ bank: "124", accountNumber: "0123456789", expectedName: "TEST USER" }), code("BANK_SELECTION_REQUIRED"));
+});
+
 test("order requests fix NGN and send the documented token/chain fields without adding a business fee", async () => {
   const { request, calls } = stub(quotedOrder);
   const response = await new PajClient("staging", "fake-session", request).createOfframp({ bankReference: "saved_1", accountNumber: "0123456789", receiveNgn: 15000n, chain: "MONAD", mint: PAJ_USDC.MONAD.mainnet });
