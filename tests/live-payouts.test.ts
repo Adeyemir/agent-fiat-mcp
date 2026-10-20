@@ -23,7 +23,7 @@ function fixture(t: test.TestContext, path = ":memory:") {
   t.after(() => store.close());
   store.setBank("live:production:mainnet", bank);
   const config = loadConfig({ PAJ_API_KEY: "fake-key", CIRCLE_ARC_ADDRESS: source });
-  const control = { now: Date.now(), status: "INIT", fee: "0.02", balance: "100", failTransfer: false, alterDestination: false, finalNgn: undefined as number | undefined, orderAgeMs: 0 };
+  const control = { now: Date.now(), status: "INIT", fee: "0.02", balance: "100", failTransfer: false, alterDestination: false, finalNgn: undefined as number | undefined, orderAgeMs: 0, receipt: undefined as Record<string, unknown> | undefined };
   const orders = new Map<string, Record<string, unknown>>();
   const transfers: { to: string; usdc: string; idempotencyKey: string }[] = [];
   const request: JsonRequest = async (url, options = {}) => {
@@ -40,7 +40,7 @@ function fixture(t: test.TestContext, path = ":memory:") {
     }
     const raw = orders.get(url.split("/").at(-1)!);
     assert.ok(raw);
-    return { ...raw, status: control.status, ...(control.alterDestination ? { address: source } : {}), ...(control.finalNgn === undefined ? {} : { fiatAmount: control.finalNgn }) };
+    return { ...raw, status: control.status, ...(control.alterDestination ? { address: source } : {}), ...(control.finalNgn === undefined ? {} : { fiatAmount: control.finalNgn }), ...control.receipt };
   };
   const wallet: LiveWallet = {
     address: source, chain: "ARC", checkVersion: async () => "1.2.2", requireAgentWallet: async () => {},
@@ -103,6 +103,61 @@ test("provider completion retains the final repriced NGN without inventing indep
   assert.equal(result.finalProviderNgn, "14900");
   assert.equal(result.bankPaid, false);
   assert.equal(result.bankCreditIndependentlyVerified, false);
+});
+
+test("PAJ's settled receipt may replace address and timestamp only when its transfer matches Circle", async t => {
+  const f = fixture(t);
+  const quote = await f.service.prepare({ amount: "10", currency: "USDC" });
+  await f.service.execute(quote.payoutId, async () => true);
+  f.control.status = "COMPLETED";
+  f.control.finalNgn = 14900;
+  f.control.receipt = { address: source, sender: source, recipient: destination, signature: `0x${"a".repeat(64)}`, createdAt: new Date(f.control.now + 30_000).toISOString() };
+  const result = await f.service.status(quote.payoutId);
+  assert.equal(result.state, "provider_completed");
+  assert.equal(result.providerTransferMatched, true);
+  assert.equal(result.finalProviderNgn, "14900");
+  assert.equal(result.bankPaid, false);
+  assert.equal(result.bankCreditIndependentlyVerified, false);
+  const saved = f.store.live(quote.payoutId);
+  assert.equal(saved.order.depositAddress, destination);
+  assert.equal(saved.order.createdAt, new Date(f.control.now).toISOString());
+  assert.equal(saved.providerReceipt?.signature, saved.transactionHash);
+  for (const secret of [source, destination, bank.accountNumber]) assert.equal(JSON.stringify(result).includes(secret), false);
+  await f.service.execute(quote.payoutId, async () => { assert.fail("Do not re-approve a completed payout"); });
+  assert.equal(f.transfers.length, 1);
+});
+
+test("changed settled receipts cannot bypass hash, source, destination, token or amount checks", async t => {
+  const unknown = "0x3333333333333333333333333333333333333333";
+  for (const tamper of [
+    { signature: `0x${"b".repeat(64)}` },
+    { signature: "" },
+    { sender: unknown },
+    { recipient: unknown },
+    { address: unknown },
+    { mint: unknown },
+    { amount: 10 },
+  ]) {
+    const f = fixture(t);
+    const quote = await f.service.prepare({ amount: "10", currency: "USDC" });
+    await f.service.execute(quote.payoutId, async () => true);
+    f.control.status = "COMPLETED";
+    f.control.receipt = { address: source, sender: source, recipient: destination, signature: `0x${"a".repeat(64)}`, createdAt: new Date(f.control.now + 30_000).toISOString(), ...tamper };
+    await assert.rejects(f.service.status(quote.payoutId), code("mint" in tamper ? "INVALID_PROVIDER_TOKEN" : "PROVIDER_ORDER_CHANGED"));
+    assert.equal(f.store.live(quote.payoutId).state, "bank_pending");
+    assert.equal(f.store.live(quote.payoutId).providerReceipt, undefined);
+    assert.equal(f.transfers.length, 1);
+  }
+});
+
+test("even an unchanged order cannot claim completion with a different transfer signature", async t => {
+  const f = fixture(t);
+  const quote = await f.service.prepare({ amount: "10", currency: "USDC" });
+  await f.service.execute(quote.payoutId, async () => true);
+  f.control.status = "COMPLETED";
+  f.control.receipt = { signature: `0x${"b".repeat(64)}`, sender: source, recipient: destination };
+  await assert.rejects(f.service.status(quote.payoutId), code("PROVIDER_ORDER_CHANGED"));
+  assert.equal(f.transfers.length, 1);
 });
 
 test("an ambiguous transfer is persisted and never resent, including after a restart", async t => {

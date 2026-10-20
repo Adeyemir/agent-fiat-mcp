@@ -2,7 +2,7 @@
 
 An open-source MCP integration for **USDC on Arc → NGN in a Nigerian bank account**, using **Circle Agent Wallet** and PAJ.
 
-> **In development.** Direct Arc payout preparation and human-approved Circle transfers are implemented against PAJ v2. Live wallet reads, PAJ API access and Arc availability have been checked. A real bank payout has not yet been tested or independently verified.
+> **In development.** A reviewed live Arc USDC transfer has been confirmed by Circle and matched to PAJ's completed payout receipt. Independent confirmation of bank credit remains outstanding.
 
 The normal route sends USDC from your Circle Agent Wallet on Arc to a fresh PAJ Arc order, then tracks the NGN payout. The development simulator is an explicit opt-in.
 
@@ -19,7 +19,7 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Keep the default `OFFRAMP_MODE=live`. Connect your Circle Agent Wallet through the Circle CLI, save its Arc address in your private `CIRCLE_ARC_ADDRESS` configuration, and configure `PAJ_API_KEY` using [provider setup](docs/provider-setup.md). PAJ v2 uses that Business API key directly, without an email/OTP session. Normal requests use the saved wallet and bank; you do not enter a crypto destination address for cashouts.
+Keep the default `OFFRAMP_MODE=live`. Connect your Circle Agent Wallet through the Circle CLI, save its Arc address in your private `CIRCLE_ARC_ADDRESS` configuration, and configure `PAJ_API_KEY` using [provider setup](docs/provider-setup.md). PAJ v2 uses that Business API key directly, without an email/OTP session. Requests use the saved wallet and either an explicitly specified recipient or an optional default bank. You do not enter a crypto destination address for cashouts.
 
 ## Connect to Codex or Claude Code
 
@@ -45,9 +45,15 @@ Start by asking:
 
 > List the Nigerian banks available through PAJ.
 
+> Prepare an estimated NGN 1,000 payout to this recipient: [bank name/code], [account number], [full account holder name].
+
+Provide the bank name/code, account number and expected full holder name in your private client. PAJ resolves the account. A one-off recipient does not become your local default, and the recipient need not be you.
+
+Saving a default is optional:
+
 > Verify and save my default bank account.
 
-Provide the bank name/code, account number and expected full holder name in your private client. PAJ resolves the account; review the resolved details in the human confirmation dialog before saving.
+Review the resolved details in the human confirmation dialog before saving. You can then ask:
 
 > Prepare an estimated NGN 1,000 payout to my saved bank from my USDC on Arc.
 

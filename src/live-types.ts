@@ -9,6 +9,7 @@ export interface LivePayout {
   budgetUnits: string; feeReserveUnits: string; estimatedFeeUnits: string;
   circleTransactionId?: string; transactionHash?: string; providerStatus?: string;
   finalProviderNgn?: string;
+  providerReceipt?: PajOrder;
 }
 export interface LivePayoutSummary {
   payoutId: string; mode: "live"; simulated: false; state: LivePayoutState;
@@ -19,6 +20,7 @@ export interface LivePayoutSummary {
   source: "USDC on Arc"; approvalExpiresAt: string;
   providerOrderId: string; circleTransactionId?: string;
   providerStatus?: string; finalProviderNgn?: string;
+  providerTransferMatched: boolean;
   bankPaid: false; bankCreditIndependentlyVerified: false;
 }
 export type LiveApproval = (summary: LivePayoutSummary, bank: BankAccount) => Promise<boolean>;

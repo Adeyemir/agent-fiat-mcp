@@ -1,6 +1,6 @@
 # Direct Arc integration status
 
-**The PAJ v2 + Circle Agent Wallet direct Arc payout path is implemented. A real bank payout has not yet been funded or independently verified.** This distinction applies even when readiness reports the credentials and chain as available.
+**The PAJ v2 + Circle Agent Wallet direct Arc payout path has funded a reviewed live order. Circle confirmed the transfer and PAJ returned a matching completed payout receipt. Independent bank-credit verification remains outstanding.** Readiness alone does not establish delivery.
 
 ## Current provider contract
 
@@ -25,6 +25,7 @@ Each order uses `bankCode` and `accountNumber`. No saved-account ID is passed. T
 - Human approval before transfer, followed by another order, expiry, balance and estimated-fee check.
 - A SQLite claim before submission; uncertain results and interrupted submissions are never automatically resent.
 - Provider polling for `INIT`, `PROCESSING`, `COMPLETED` and `ERROR`, without interpreting a chain receipt as bank credit.
+- Matching settled PAJ receipts to Circle's confirmed transaction hash, source, original funding destination, chain, token and amount. PAJ's final receipt can use the sender as `address` and the deposit time as `createdAt`; those fields never overwrite the original order's funding instructions.
 - An explicit development simulator in separate storage.
 
 ## Amount and timing semantics
@@ -47,7 +48,7 @@ Checked 2026-10-20:
 - Circle Agent Wallet reads and an Arc transfer estimate succeed. Native USDC gas is read at 18 decimals and rounded up into the six-decimal token view, without summing the wallet's two views.
 - Controlled tests exercise Arc order creation, source/destination binding, recipient approval, changing fees/orders, expiry, concurrent execution, restart after an ambiguous submission, provider errors and repriced final NGN.
 
-Real bank registration, a funded Arc order, actual Circle transfer submission and actual bank credit have not yet been tested for this account. The next step is [local bank setup and a reviewed small payout](provider-setup.md). No test so far has moved funds.
+On 2026-10-20, a user-approved one-off recipient was verified, a production Arc order was funded, Circle reported the transfer complete, and PAJ reported the payout completed. The final PAJ signature, sender and recipient matched the confirmed Circle transfer. This is live transfer and provider-completion evidence; independent bank credit has not yet been confirmed. Automated tests use controlled responses and move no funds.
 
 ## Funding the agent wallet
 

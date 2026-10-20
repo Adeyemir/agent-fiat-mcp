@@ -15,7 +15,7 @@ export interface PajOrder {
   id: string; depositAddress: string; mint: string; currency: "NGN";
   usdc: string; ngn: string; chain: PajChain; status: PajStatus;
   transactionType: "OFF_RAMP" | "ON_RAMP"; providerFeeUsdc: string; createdAt: string;
-  recipient?: string; accountNumber?: string; accountName?: string; bank?: string;
+  signature?: string; sender?: string; recipient?: string; accountNumber?: string; accountName?: string; bank?: string;
 }
 
 function text(value: unknown, field: string, maximum = 256): string {
@@ -62,6 +62,8 @@ function order(value: unknown, kind: "OFF_RAMP" | "ON_RAMP"): PajOrder {
     currency: "NGN", usdc: providerAmount(data.amount), ngn: providerAmount(data.fiatAmount, 2),
     chain: data.chain, status: data.status as PajStatus, transactionType: kind,
     providerFeeUsdc: data.fee === undefined ? "0" : providerAmount(data.fee, 6, true), createdAt,
+    ...(typeof data.signature === "string" && data.signature.length > 0 ? { signature: text(data.signature, "transaction signature", 128) } : {}),
+    ...(typeof data.sender === "string" && data.sender.length > 0 ? { sender: text(data.sender, "transaction sender") } : {}),
     ...(typeof data.recipient === "string" ? { recipient: data.recipient } : {}),
     ...(typeof data.accountNumber === "string" ? { accountNumber: data.accountNumber } : {}),
     ...(typeof data.accountName === "string" ? { accountName: data.accountName } : {}),

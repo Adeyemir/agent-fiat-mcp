@@ -152,11 +152,22 @@ export class LiveService {
     const payout = this.load(id);
     if (["prepared", "authorising", "submitting", "provider_completed", "failed"].includes(payout.state)) return this.summary(payout);
     const provider = await this.provider().transaction(payout.order.id);
-    requireThat(provider.chain === payout.order.chain && provider.mint.toLowerCase() === payout.order.mint.toLowerCase() && provider.depositAddress.toLowerCase() === payout.order.depositAddress.toLowerCase() && provider.usdc === payout.order.usdc && provider.createdAt === payout.order.createdAt, "PROVIDER_ORDER_CHANGED", "PAJ returned different settlement details. Reconcile this existing payout.");
+    const sameAddress = (value: string | undefined, expected: string) => typeof value === "string" && value.toLowerCase() === expected.toLowerCase();
+    // PAJ's settled transaction replaces the quote's address with the sender
+    // and createdAt with the deposit time. Bind that receipt to the confirmed
+    // Circle hash, source and original destination; never rewrite the quote.
+    const receiptMatches = typeof provider.signature === "string" && /^0x[0-9a-f]{64}$/i.test(provider.signature)
+      && typeof payout.transactionHash === "string" && provider.signature.toLowerCase() === payout.transactionHash.toLowerCase()
+      && sameAddress(provider.sender, payout.sourceAddress) && sameAddress(provider.recipient, payout.order.depositAddress)
+      && (sameAddress(provider.depositAddress, payout.sourceAddress) || sameAddress(provider.depositAddress, payout.order.depositAddress));
+    const orderUnchanged = sameAddress(provider.depositAddress, payout.order.depositAddress) && provider.createdAt === payout.order.createdAt;
+    requireThat(provider.chain === payout.order.chain && provider.mint.toLowerCase() === payout.order.mint.toLowerCase() && provider.usdc === payout.order.usdc
+      && (provider.signature ? receiptMatches : orderUnchanged), "PROVIDER_ORDER_CHANGED", "PAJ returned different settlement details. Reconcile this existing payout.");
     const current = this.load(id);
     if (current.state === "provider_completed" || current.state === "failed") return this.summary(current);
     const previous = current.state;
     current.providerStatus = provider.status;
+    if (receiptMatches) current.providerReceipt = provider;
     if (provider.status === "COMPLETED") { current.state = "provider_completed"; current.finalProviderNgn = provider.ngn; }
     if (provider.status === "ERROR") current.state = "failed";
     this.store.saveLive(current, previous);
@@ -178,6 +189,7 @@ export class LiveService {
       ...(payout.circleTransactionId ? { circleTransactionId: payout.circleTransactionId } : {}),
       ...(payout.providerStatus ? { providerStatus: payout.providerStatus } : {}),
       ...(payout.finalProviderNgn ? { finalProviderNgn: payout.finalProviderNgn } : {}),
+      providerTransferMatched: Boolean(payout.providerReceipt),
       bankPaid: false, bankCreditIndependentlyVerified: false,
     };
   }

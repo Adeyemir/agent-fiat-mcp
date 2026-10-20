@@ -26,11 +26,13 @@ The default server exposes `get_balance`, `list_banks`, `get_default_bank`, `set
 
 `set_default_bank` registers and verifies the account through PAJ v2 before human confirmation of local saving. Registration can persist at PAJ even if local saving is declined. Normal results mask the account number; the approval displays the full resolved name, bank and account. The provider's returned Solana standing address is never used for Arc payouts.
 
-`prepare_payout` opens an unfunded Arc order. An NGN amount is an indicative target. A USDC amount budgets the payment plus estimated gas by reserving the configured amount in the wallet. Provider charges, gas estimate, reserve, requested budget and local approval expiry are shown. Neither the final NGN amount nor the total network-fee-inclusive debit is guaranteed.
+`prepare_payout` opens an unfunded Arc order. Its optional `bank` input selects a one-off recipient without changing the local default; the recipient need not be the wallet owner. Omitting it uses a previously saved default. An NGN amount is an indicative target. A USDC amount budgets the payment plus estimated gas by reserving the configured amount in the wallet. Provider charges, gas estimate, reserve, requested budget and local approval expiry are shown. Neither the final NGN amount nor the total network-fee-inclusive debit is guaranteed.
 
 `execute_payout` requires human form elicitation, revalidates the order and budget estimate, claims the payout in SQLite, persists `submitting`, then calls Circle with the payout ID as idempotency key. The CLI has no hard gas-cap flag, which is disclosed in the approval. Repeated execution never sends a second transfer.
 
 `payout_status` polls the existing PAJ order. Provider `COMPLETED` is `provider_completed` and can report a different final NGN amount. It does not independently prove bank credit; `bankPaid` remains false. Provider `ERROR` is `failed`, with no automatic resend or refund.
+
+PAJ's settled receipt can replace the original funding address with the sender address and change `createdAt` to the deposit time. Such a receipt is accepted only when its transaction signature, sender, recipient, chain, token and amount match the confirmed Circle transfer and original order. The original funding instructions are preserved. `providerTransferMatched` records this correlation, without claiming independent bank credit.
 
 ## Read-only checks
 
