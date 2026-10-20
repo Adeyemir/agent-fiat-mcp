@@ -42,7 +42,23 @@ The same operation is available through the `get_readiness` MCP tool. Provider l
 
 The published rate endpoint currently omits `isActive`, although the reference example includes it. The client reports `active: null` when absent. The response's `createdAt` is preserved without assuming it is a rate update time or a quote expiry. An indicative rate response is not a locked payout quote.
 
-## Questions to confirm with PAJ before funding an order
+## Settlement review — 2026-10-20
+
+PAJ's [published API reference](https://github.com/paj-cash/paj_ramp/blob/main/lib/API_REFERENCE.md) still lists `SOLANA` and `MONAD` in its settlement-chain enum, with no documented `ARC` option. Circle's [Forwarding Service guide](https://developers.circle.com/gateway/howtos/forwarding-service) documents cross-chain destination minting, including recipient token-account setup. This establishes a possible transport mechanism; it does not establish PAJ's acceptance or order attribution.
+
+### Message to send PAJ
+
+> Hi PAJ team, I'm building naira-offramp-mcp, an open-source tool that converts USDC held on Arc in Circle Agent Wallet into NGN in a saved Nigerian bank account. Business API login works.
+>
+> Do you support direct Arc USDC deposits? If not, can Circle Gateway's Forwarding Service mint USDC into a PAJ order's deposit account and have it credited automatically? Please confirm the supported API chain, USDC token, recipient format, and any sender or transaction-reference requirements.
+>
+> Also, does POST /pub/offramp expect the bank-directory ID or the saved bank-account ID? Your reference's sections 9 and 14 describe different IDs.
+>
+> Please share the fee, expiry, minimum/maximum payout, and bank-credit confirmation rules for that route before we fund a test order.
+
+This is a draft for the maintainer to send; the project has not contacted PAJ or received route approval. No API keys, session tokens, wallet addresses, or bank details are needed in the initial inquiry.
+
+### Details to confirm before funding an order
 
 1. Do you accept USDC on Arc directly? If not, which settlement network, USDC token, API environment, and deposit-recipient format should an Arc-funded integration use?
 2. Do you credit USDC minted into the order deposit account by Circle Gateway's Forwarding Service? Does funding require a normal token transfer, a specific sender, or another attribution step?
