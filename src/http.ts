@@ -1,10 +1,57 @@
-import { OfframpError } from "./errors.js";
+import { OfframpError, requireThat } from "./errors.js";
+
+export async function readLimitedText(
+  response: Response | Request,
+  maximum = 1_048_576,
+): Promise<string> {
+  const length = response.headers.get("content-length");
+  requireThat(
+    !length ||
+      (Number.isSafeInteger(Number(length)) && Number(length) >= 0 && Number(length) <= maximum),
+    "RESPONSE_TOO_LARGE",
+    "The request or response exceeds the permitted size.",
+  );
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maximum) {
+        await reader.cancel();
+        throw new OfframpError(
+          "RESPONSE_TOO_LARGE",
+          "The request or response exceeds the permitted size.",
+        );
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+export async function readLimitedJson(response: Response): Promise<unknown> {
+  return JSON.parse(await readLimitedText(response));
+}
 
 export async function jsonRequest(url: string, options: RequestInit = {}): Promise<unknown> {
   try {
     const response = await fetch(url, {
       ...options,
-      redirect: "error",
+      // Workers rejects redirect:"error". Manual mode never follows redirects;
+      // the response.ok check below also rejects every 3xx response.
+      redirect: "manual",
       signal: AbortSignal.timeout(35_000),
     });
     if (!response.ok)
@@ -12,7 +59,7 @@ export async function jsonRequest(url: string, options: RequestInit = {}): Promi
         "PROVIDER_HTTP_ERROR",
         `A provider request failed (HTTP ${response.status}). Check account access and use payout_status after a payment submission.`,
       );
-    return await response.json();
+    return await readLimitedJson(response);
   } catch (error) {
     if (error instanceof OfframpError) throw error;
     throw new OfframpError(

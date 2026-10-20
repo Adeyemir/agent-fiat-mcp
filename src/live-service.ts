@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import type { Config } from "./config.js";
 import { OfframpError, requireThat } from "./errors.js";
 import { jsonRequest } from "./http.js";
-import { PajClient, type JsonRequest } from "./providers/paj.js";
+import type { JsonRequest } from "./providers/paj.js";
+import { createProvider } from "./providers/index.js";
 import type { Store } from "./store.js";
 import type { BankApproval, BankInput } from "./types.js";
 import { decimal, units } from "./money.js";
@@ -35,7 +36,7 @@ export class LiveService {
   }
 
   private provider() {
-    return new PajClient(this.config.pajEnvironment, this.config.pajApiKey, this.request);
+    return createProvider(this.config, this.request);
   }
 
   private wallet(): LiveWallet {

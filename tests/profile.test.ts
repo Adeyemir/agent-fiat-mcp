@@ -21,7 +21,8 @@ test("profile initialization creates a private template and never overwrites an 
   assert.equal(first.file, profileFile(env));
   assert.equal(statSync(env.OFFRAMP_DATA_DIR).mode & 0o777, 0o700);
   assert.equal(statSync(first.file).mode & 0o777, 0o600);
-  assert.match(readFileSync(first.file, "utf8"), /# PAJ_API_KEY=/);
+  assert.match(readFileSync(first.file, "utf8"), /# CIRCLE_ARC_ADDRESS=/);
+  assert.ok(!readFileSync(first.file, "utf8").includes("PAJ_API_KEY="));
   writeFileSync(first.file, "PAJ_API_KEY=existing-private-key\n");
   assert.deepEqual(initProfile(env), { file: first.file, created: false });
   assert.equal(readFileSync(first.file, "utf8"), "PAJ_API_KEY=existing-private-key\n");

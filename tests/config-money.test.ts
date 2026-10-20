@@ -26,3 +26,26 @@ test("holder matching accepts reordered names and rejects missing or different n
   assert.equal(sameName("TEST USER", "OTHER USER"), false);
   assert.equal(sameName("", ""), false);
 });
+
+test("hosted endpoints require HTTPS and cannot contain credentials or an arbitrary path", () => {
+  for (const url of [
+    "http://example.com",
+    "https://user:password@example.com",
+    "https://example.com/v1",
+    "https://example.com?key=secret",
+    "ftp://example.com",
+  ]) {
+    assert.throws(
+      () => loadConfig({ OFFRAMP_BACKEND_URL: url }),
+      (error) => error instanceof OfframpError && error.code === "INVALID_CONFIG",
+    );
+  }
+  assert.equal(
+    loadConfig({ OFFRAMP_BACKEND_URL: "https://example.com/" }).backendUrl,
+    "https://example.com",
+  );
+  assert.equal(
+    loadConfig({ OFFRAMP_BACKEND_URL: "http://127.0.0.1:8787" }).backendUrl,
+    "http://127.0.0.1:8787",
+  );
+});

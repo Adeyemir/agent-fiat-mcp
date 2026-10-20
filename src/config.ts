@@ -12,6 +12,7 @@ export interface Config {
   circleBin: string;
   arcAddress?: string;
   pajApiKey?: string;
+  backendUrl?: string;
   pajEnvironment: PajEnvironment;
   arcNetwork: "testnet" | "mainnet";
 }
@@ -29,6 +30,27 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   );
   const pajEnvironment = env.PAJ_ENVIRONMENT ?? "production";
   const arcNetwork = env.ARC_NETWORK ?? "mainnet";
+  let backendUrl: string | undefined;
+  if (env.OFFRAMP_BACKEND_URL) {
+    try {
+      const url = new URL(env.OFFRAMP_BACKEND_URL);
+      requireThat(
+        (url.protocol === "https:" ||
+          (url.protocol === "http:" &&
+            ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) &&
+          !url.username &&
+          !url.password &&
+          !url.search &&
+          !url.hash &&
+          url.pathname === "/",
+        "INVALID_CONFIG",
+        "OFFRAMP_BACKEND_URL must be an HTTPS origin (HTTP is allowed only on loopback for local development).",
+      );
+      backendUrl = url.origin;
+    } catch {
+      requireThat(false, "INVALID_CONFIG", "OFFRAMP_BACKEND_URL must be an HTTPS origin.");
+    }
+  }
   requireThat(
     pajEnvironment === "staging" || pajEnvironment === "production",
     "INVALID_CONFIG",
@@ -47,6 +69,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     networkFeeReserveUnits: units(env.OFFRAMP_NETWORK_FEE_RESERVE_USDC ?? "0.05"),
     ...(env.CIRCLE_ARC_ADDRESS ? { arcAddress: env.CIRCLE_ARC_ADDRESS } : {}),
     ...(env.PAJ_API_KEY ? { pajApiKey: env.PAJ_API_KEY } : {}),
+    ...(backendUrl ? { backendUrl } : {}),
     pajEnvironment,
     arcNetwork,
   };

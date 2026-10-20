@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { dataDirectory, loadConfig, type Config } from "./config.js";
 import { OfframpError } from "./errors.js";
+import { DEFAULT_BACKEND_URL } from "./backend-endpoint.js";
 
 export function profileFile(env: NodeJS.ProcessEnv = process.env): string {
   return join(dataDirectory(env), "provider.env");
@@ -42,5 +43,13 @@ export function loadProfileConfig(env: NodeJS.ProcessEnv = process.env): Config 
     Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
   );
   // Keep credentials out of process.env and select the profile only from the launching environment.
-  return loadConfig({ ...saved, ...overrides, OFFRAMP_DATA_DIR: dataDirectory(env) });
+  const merged: NodeJS.ProcessEnv = {
+    ...saved,
+    ...overrides,
+    OFFRAMP_DATA_DIR: dataDirectory(env),
+  };
+  if (merged.OFFRAMP_BACKEND_URL === undefined && !merged.PAJ_API_KEY && DEFAULT_BACKEND_URL) {
+    merged.OFFRAMP_BACKEND_URL = DEFAULT_BACKEND_URL;
+  }
+  return loadConfig(merged);
 }

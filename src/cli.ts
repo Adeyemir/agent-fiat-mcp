@@ -42,7 +42,9 @@ async function doctor() {
         providerEnvironment: config.pajEnvironment,
         arcNetwork: config.arcNetwork,
         providerApiVersion: "v2",
-        providerApiKeyConfigured: Boolean(config.pajApiKey),
+        providerConnection: config.backendUrl ? "hosted" : "direct",
+        backendUrl: config.backendUrl,
+        providerApiKeyConfigured: config.backendUrl ? undefined : Boolean(config.pajApiKey),
         nextStep: "Run provider-check, connect your MCP client, then prepare a payout for review.",
       },
       null,
@@ -60,7 +62,7 @@ async function main() {
         {
           ...initProfile(),
           nextStep:
-            "Edit this private file to set PAJ_API_KEY and CIRCLE_ARC_ADDRESS, authenticate with Circle, then run provider-check and register the MCP server.",
+            "Connect your Circle Agent Wallet, set CIRCLE_ARC_ADDRESS in this private file, then run provider-check and register the MCP server. The hosted service manages PAJ access; no PAJ key is needed.",
         },
         null,
         2,

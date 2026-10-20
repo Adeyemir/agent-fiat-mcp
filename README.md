@@ -4,6 +4,8 @@
 
 Agents can use this MCP server to pay a business, supplier or person in NGN using funds held in Circle Agent Wallet. It verifies the recipient, prepares a payment for review, obtains human approval and tracks the payout through PAJ.
 
+**Users do not need a PAJ account or API key.** The hosted backend manages PAJ access. Wallet authentication, approval and USDC transfers run locally through each user's Circle Agent Wallet.
+
 Applications provide service discovery, bookings and merchant order confirmation around these payment tools. A successful bank payment alone does not establish that a merchant delivered the goods or issued a ticket.
 
 **Live route verified:** on October 20, 2026, Circle confirmed an Arc USDC transfer, PAJ returned a matching completed payout receipt, and the recipient confirmed receiving the NGN. See [verification evidence](docs/live-integration.md).
@@ -12,8 +14,8 @@ Applications provide service discovery, bookings and merchant order confirmation
 
 ```mermaid
 flowchart LR
-    Request[Amount and recipient] --> Quote[Verify account and prepare quote]
-    Quote --> Approval[Human approval]
+    Request[Amount and recipient] --> Quote[Hosted API verifies account and prepares quote]
+    Quote --> Approval[Local human approval]
     Approval --> Wallet[Circle Agent Wallet on Arc]
     Wallet --> PAJ[PAJ converts USDC to NGN]
     PAJ --> Bank[Nigerian bank account]
@@ -23,46 +25,46 @@ Specify a recipient for each payment, or optionally save a default. The recipien
 
 ## Quick start
 
-Requires Node.js **22.13+**, Circle CLI **1.2.1+**, a funded Circle Agent Wallet on Arc, and a PAJ Business API key.
+Requires Node.js **22.13+**, Circle CLI **1.2.1+**, and a funded Circle Agent Wallet on Arc.
 
 For a development checkout, see the [source installation](CONTRIBUTING.md#source-installation).
 
 Create your private configuration once:
 
 ```sh
-npx --yes naira-offramp-mcp@0.1.0 init
+npx --yes naira-offramp-mcp@0.2.0 init
 ```
 
-Edit the returned `provider.env` file, normally at `~/.local/share/naira-offramp-mcp/provider.env`. Set your own `PAJ_API_KEY` and `CIRCLE_ARC_ADDRESS`, and authenticate through the Circle CLI. Existing configuration files are preserved. See [provider and wallet setup](docs/provider-setup.md).
+Edit the returned `provider.env` file, normally at `~/.local/share/naira-offramp-mcp/provider.env`. Set `CIRCLE_ARC_ADDRESS` to your existing Arc agent wallet and authenticate through the Circle CLI. The client connects to the hosted API automatically and creates its own private connection credentials. Existing configuration files are preserved. See [wallet setup](docs/provider-setup.md).
 
 Check the setup without moving funds:
 
 ```sh
-npx --yes naira-offramp-mcp@0.1.0 doctor
-npx --yes naira-offramp-mcp@0.1.0 provider-check
+npx --yes naira-offramp-mcp@0.2.0 doctor
+npx --yes naira-offramp-mcp@0.2.0 provider-check
 ```
 
 ## Connect your agent
 
 Register the server once with a client that supports local stdio MCP servers. Installing the npm package alone does not register its tools with your agent. The server uses your client's model; this project does not require an LLM API key.
 
-The client launches the package when it connects and makes its tools available to the agent. It uses the local user's Circle session and private configuration. A wallet address alone does not grant spending access. Each user supplies their own wallet and PAJ key; you do not deploy a shared server.
+The client launches the package when it connects and makes its tools available to the agent. It uses the local user's Circle session and private configuration. A wallet address alone does not grant spending access. The hosted service handles PAJ requests using a server secret; users receive no PAJ credentials. Their wallets fund the PAJ order directly after human approval.
 
 ### Codex
 
 ```sh
-codex mcp add naira-offramp -- npx --yes naira-offramp-mcp@0.1.0
+codex mcp add naira-offramp -- npx --yes naira-offramp-mcp@0.2.0
 ```
 
 ### Claude Code
 
 ```sh
-claude mcp add --transport stdio naira-offramp -- npx --yes naira-offramp-mcp@0.1.0
+claude mcp add --transport stdio naira-offramp -- npx --yes naira-offramp-mcp@0.2.0
 ```
 
-For another compatible client, set the command to `npx` and arguments to `["--yes", "naira-offramp-mcp@0.1.0"]`. Reconnect your client after registration. See the official [Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
+For another compatible client, set the command to `npx` and arguments to `["--yes", "naira-offramp-mcp@0.2.0"]`. Reconnect your client after registration. See the official [Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
 
-You can alternatively run `npm install --global naira-offramp-mcp@0.1.0` and register the `naira-offramp-mcp` command. Both methods run the same MCP server. Configuration and payout history stay outside the installed package, so upgrades preserve them. These examples pin a version; update it deliberately when adopting a new release.
+You can alternatively run `npm install --global naira-offramp-mcp@0.2.0` and register the `naira-offramp-mcp` command. Both methods run the same MCP server. Configuration and payout history stay outside the installed package, so upgrades preserve them. These examples pin a version; update it deliberately when adopting a new release.
 
 Try these requests in your private client:
 
@@ -111,6 +113,8 @@ npm run test:package
 ```
 
 Tests use controlled PAJ responses, fake Circle executables and temporary databases. They require no credentials and move no real money. The runtime contains one payment implementation: PAJ v2 with Circle Agent Wallet on Arc.
+
+The [Cloudflare backend](docs/backend.md) uses Workers and D1. It validates signed requests, isolates orders per installation, limits usage and records uncertain order creation without automatically retrying it. Developers can self-host the same backend with their own provider credentials.
 
 [Contributing](CONTRIBUTING.md) · [Configuration and CLI](docs/usage.md) · [Verification](docs/live-integration.md)
 

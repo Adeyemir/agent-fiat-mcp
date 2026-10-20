@@ -4,18 +4,21 @@
 
 The CLI reads `provider.env` from `~/.local/share/naira-offramp-mcp`, regardless of its working directory. Run `init` to create the template. Environment variables take precedence over saved values. Set `OFFRAMP_DATA_DIR` in the launching environment to select a different profile; that variable is not read from `provider.env`.
 
+New profiles use the hosted backend automatically. The private `service-identity.json` file authenticates the installation and is generated on the first service request. It is separate from Circle's wallet credentials. Keep this file with the payout database when backing up or moving a profile; replacing it loses access to that installation's hosted orders. This identity represents an installation, not verified personal identity or KYC.
+
 The CLI does not load a working directory's `.env` automatically. Source-checkout scripts such as `npm start` and `npm run dev` still support it through Node's `--env-file-if-exists=.env`; explicit `--env-file` values take precedence over the saved profile. Programmatic callers can use `loadProfileConfig()` for the same behavior, or pass a `Config` directly to `createRuntime()`.
 
-| Variable                           | Default                            | Purpose                                                |
-| ---------------------------------- | ---------------------------------- | ------------------------------------------------------ |
-| `PAJ_API_KEY`                      | unset                              | PAJ Business API key.                                  |
-| `CIRCLE_ARC_ADDRESS`               | unset                              | Configured Circle Agent Wallet source on Arc.          |
-| `CIRCLE_BIN`                       | `circle`                           | Circle CLI executable.                                 |
-| `OFFRAMP_DATA_DIR`                 | `~/.local/share/naira-offramp-mcp` | Private local profile.                                 |
-| `OFFRAMP_MAX_USDC`                 | `100`                              | Per-payout spending limit, checked with estimated gas. |
-| `OFFRAMP_NETWORK_FEE_RESERVE_USDC` | `0.05`                             | USDC retained for estimated gas.                       |
-| `PAJ_ENVIRONMENT`                  | `production`                       | Production is required for payment preparation.        |
-| `ARC_NETWORK`                      | `mainnet`                          | Mainnet is required for payment preparation.           |
+| Variable                           | Default                            | Purpose                                                                |
+| ---------------------------------- | ---------------------------------- | ---------------------------------------------------------------------- |
+| `OFFRAMP_BACKEND_URL`              | published service                  | Hosted API HTTPS origin; optional for self-hosting.                    |
+| `PAJ_API_KEY`                      | unset                              | Legacy direct mode only; users of the hosted service do not supply it. |
+| `CIRCLE_ARC_ADDRESS`               | unset                              | Configured Circle Agent Wallet source on Arc.                          |
+| `CIRCLE_BIN`                       | `circle`                           | Circle CLI executable.                                                 |
+| `OFFRAMP_DATA_DIR`                 | `~/.local/share/naira-offramp-mcp` | Private local profile.                                                 |
+| `OFFRAMP_MAX_USDC`                 | `100`                              | Per-payout spending limit, checked with estimated gas.                 |
+| `OFFRAMP_NETWORK_FEE_RESERVE_USDC` | `0.05`                             | USDC retained for estimated gas.                                       |
+| `PAJ_ENVIRONMENT`                  | `production`                       | Production is required for payment preparation.                        |
+| `ARC_NETWORK`                      | `mainnet`                          | Mainnet is required for payment preparation.                           |
 
 ## Prepare a payment
 
@@ -54,22 +57,22 @@ Use `payout_status` to poll that order. PAJ `COMPLETED` becomes `provider_comple
 For clients without human forms, prepare a one-off recipient in an interactive terminal:
 
 ```sh
-npx --yes naira-offramp-mcp@0.1.0 quote 5000 NGN --recipient
+npx --yes naira-offramp-mcp@0.2.0 quote 5000 NGN --recipient
 ```
 
-The command prompts for recipient details and opens an unfunded order. Alternatively, save an optional default with `npx --yes naira-offramp-mcp@0.1.0 set-bank`, then omit `--recipient` when quoting.
+The command prompts for recipient details and opens an unfunded order. Alternatively, save an optional default with `npx --yes naira-offramp-mcp@0.2.0 set-bank`, then omit `--recipient` when quoting.
 
 Only when you intend to transfer, review and approve the prepared order:
 
 ```sh
-npx --yes naira-offramp-mcp@0.1.0 approve YOUR_PREPARED_PAYOUT_ID
+npx --yes naira-offramp-mcp@0.2.0 approve YOUR_PREPARED_PAYOUT_ID
 ```
 
 Read the complete terms and type `APPROVE`. Piped approval is refused. Track the same payment with:
 
 ```sh
-npx --yes naira-offramp-mcp@0.1.0 status YOUR_PREPARED_PAYOUT_ID
-npx --yes naira-offramp-mcp@0.1.0 history
+npx --yes naira-offramp-mcp@0.2.0 status YOUR_PREPARED_PAYOUT_ID
+npx --yes naira-offramp-mcp@0.2.0 history
 ```
 
 The package command without a subcommand runs the stdio MCP server and waits for a client. Installing it alone does not connect an agent: register the server in your MCP client once, as shown in the [README](../README.md#connect-your-agent). For a source checkout, use `node dist/cli.js` in place of the pinned `npx` command.
@@ -81,3 +84,5 @@ Approval expires within five minutes and does not lock the exchange rate. PAJ's 
 `reconciliation_required` means a transfer may already have been submitted. Inspect its saved PAJ order and Circle transaction references. A crash during `authorising` or `submitting` also requires investigation. Repeating execution does not resend, and provider `ERROR` does not create a replacement or imply a refund. Preserve the local database when reconciling a payment.
 
 Profiles retain the `offramp-live-<provider-environment>-<arc-network>.sqlite` filename and existing payout records. Bank defaults are scoped by provider environment and network; payouts also bind the source wallet. New profile directories use mode `0700` and database files use `0600`. Storage is local and not encrypted. Use a separate private profile for each user.
+
+The backend stores its order references, original funding terms, installation ID and usage counters in D1. Bank-account verification and order creation send the requested recipient details to PAJ through the backend. Circle login sessions, wallet private keys and local approval remain on the user's machine. See [backend operations](backend.md) for limits and recovery.

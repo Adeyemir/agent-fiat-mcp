@@ -1,6 +1,6 @@
 {
   "name": "naira-offramp-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Let AI agents pay Nigerian bank accounts from Circle Agent Wallet USDC on Arc.",
   "type": "module",
   "license": "MIT",
@@ -52,6 +52,10 @@
     "provider:check": "node --env-file-if-exists=.env --import tsx src/cli.ts provider-check",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:package": "npm run build && node scripts/smoke-package.mjs",
+    "backend:types": "wrangler types backend/worker-configuration.d.ts --config backend/wrangler.jsonc --include-runtime=false --strict-vars=false",
+    "backend:check": "tsc --project backend/tsconfig.json",
+    "backend:build": "wrangler deploy --config backend/wrangler.jsonc --dry-run --outdir ../backend-dist",
+    "backend:test": "npm run backend:build && node --import tsx --test tests/backend.test.mjs",
     "prepack": "npm run build"
   },
   "dependencies": {
@@ -60,10 +64,14 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261019.1",
     "@types/node": "^22.0.0",
+    "jsonc-parser": "^3.3.1",
+    "miniflare": "^5.20261019.1-beta",
     "prettier": "3.9.10",
     "tsx": "^4.20.0",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "wrangler": "^4.151.3"
   },
   "repository": {
     "type": "git",

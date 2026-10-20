@@ -61,7 +61,9 @@ try {
   assert.equal(profile.file, join(env.OFFRAMP_DATA_DIR, "provider.env"));
   assert.equal(JSON.parse(run(binary, ["init"], cwd)).created, false);
   const doctor = JSON.parse(run(binary, ["doctor"], cwd));
-  assert.equal(doctor.providerApiKeyConfigured, false);
+  assert.equal(doctor.providerConnection, "hosted");
+  assert.equal(doctor.providerApiKeyConfigured, undefined);
+  assert.equal(doctor.backendUrl, "https://naira-offramp-api.adeyemir215.workers.dev");
   assert.equal(doctor.circleAgentWalletConfigured, false);
   assert.equal(doctor.dataDir, env.OFFRAMP_DATA_DIR);
 

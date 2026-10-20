@@ -29,6 +29,12 @@ This is a completed live test with bank receipt confirmed by the recipient. The 
 
 The automated suite uses fake providers, fake Circle executables and temporary databases. It does not fund live orders.
 
+## Hosted service verification
+
+On October 20, 2026, the deployed Cloudflare API passed live readiness checks from a client with no PAJ key: NGN rates, active Arc support, bank-directory access and the authenticated Circle agent wallet all passed. No payout order was created or funded during these checks.
+
+Seven local Worker/D1 integration tests cover request signatures, replay protection, order isolation, idempotent and uncertain order creation, usage limits, blocked upstream redirects, private connection identity persistence and the existing approval/receipt lifecycle through the hosted API. Provider responses and wallet transfers in those tests are controlled fixtures. The bank-credit evidence above remains the earlier direct-route live payout.
+
 ## Provider contract
 
 The implementation follows [PAJ v2](https://docs.paj.cash/) with Business API key authentication, recipient verification by bank code and account number, fresh Arc orders and `GET /transaction/{id}` polling. Arc USDC uses the six-decimal ERC-20 interface at `0x3600000000000000000000000000000000000000`.

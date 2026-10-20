@@ -2,7 +2,8 @@ import { CircleAgent } from "./adapters/circle.js";
 import type { Config } from "./config.js";
 import { publicError, requireThat } from "./errors.js";
 import { jsonRequest } from "./http.js";
-import { PajClient, type JsonRequest } from "./providers/paj.js";
+import type { JsonRequest } from "./providers/paj.js";
+import { createProvider } from "./providers/index.js";
 
 async function inspect<T>(action: () => Promise<T>) {
   try {
@@ -13,7 +14,7 @@ async function inspect<T>(action: () => Promise<T>) {
 }
 
 export async function inspectReadiness(config: Config, request: JsonRequest = jsonRequest) {
-  const provider = new PajClient(config.pajEnvironment, config.pajApiKey, request);
+  const provider = createProvider(config, request);
   const [rate, chains, accountAccess, circle] = await Promise.all([
     inspect(() => provider.rate()),
     inspect(() => provider.chains()),
@@ -69,7 +70,9 @@ export async function inspectReadiness(config: Config, request: JsonRequest = js
       apiVersion: "v2",
       documentation: "https://docs.paj.cash/",
       environment: config.pajEnvironment,
-      apiKeyConfigured: Boolean(config.pajApiKey),
+      connection: config.backendUrl ? "hosted" : "direct",
+      apiKeyConfigured: config.backendUrl ? undefined : Boolean(config.pajApiKey),
+      ...(config.backendUrl ? { backendUrl: config.backendUrl } : {}),
       accountAccess,
       indicativeRate: rate,
       chains,
@@ -86,7 +89,9 @@ export async function inspectReadiness(config: Config, request: JsonRequest = js
         ? [
             {
               code: "PROVIDER_ACCESS_UNVERIFIED",
-              message: "A working PAJ Business API key is required.",
+              message: config.backendUrl
+                ? "The hosted payout service is unavailable. Check the connection and try readiness again."
+                : "A working PAJ Business API key is required in direct mode.",
             },
           ]
         : []),

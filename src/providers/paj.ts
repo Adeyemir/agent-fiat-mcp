@@ -6,6 +6,7 @@ import type { BankAccount, BankInput } from "../types.js";
 export type PajEnvironment = "staging" | "production";
 export type PajChain = "ARC";
 export type JsonRequest = (url: string, options?: RequestInit) => Promise<unknown>;
+export type ProviderTransport = (path: string, body?: unknown) => Promise<unknown>;
 export const PAJ_USDC = { ARC: "0x3600000000000000000000000000000000000000" } as const;
 export interface PajBank {
   id: string;
@@ -160,6 +161,7 @@ export class PajClient {
     readonly environment: PajEnvironment = "production",
     apiKey?: string,
     private readonly request: JsonRequest = jsonRequest,
+    private readonly transport?: ProviderTransport,
   ) {
     if (apiKey) {
       requireThat(
@@ -177,6 +179,7 @@ export class PajClient {
       "PROVIDER_ENVIRONMENT_UNVERIFIED",
       "PAJ's v2 documentation specifies production only. A staging v2 contract has not been verified.",
     );
+    if (this.transport) return this.transport(path, body);
     requireThat(
       this.#apiKey,
       "PROVIDER_API_KEY_REQUIRED",
@@ -285,11 +288,31 @@ export class PajClient {
       "Use the exact Nigerian bank name or code. Ambiguous names are not selected automatically.",
     );
     const bank = matches[0]!;
-    const data = record(
-      await this.call("/bank-account", { bankCode: bank.code, accountNumber: input.accountNumber }),
-    );
+    const resolved = await this.registerBank(bank, input.accountNumber);
     requireThat(
-      data.accountNumber === input.accountNumber &&
+      sameName(resolved.accountName, input.expectedName),
+      "NAME_MISMATCH",
+      "The resolved holder name does not match the expected full name.",
+    );
+    return resolved;
+  }
+
+  async resolveBank(bankCode: string, accountNumber: string): Promise<BankAccount> {
+    requireThat(
+      /^\d{10}$/.test(accountNumber),
+      "INVALID_BANK_ACCOUNT",
+      "Provide a ten-digit Nigerian account number.",
+    );
+    const bank = (await this.banks()).find((item) => item.code === bankCode);
+    requireThat(bank, "BANK_SELECTION_REQUIRED", "Use a supported Nigerian bank code.");
+    return this.registerBank(bank, accountNumber);
+  }
+
+  private async registerBank(bank: PajBank, accountNumber: string): Promise<BankAccount> {
+    const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const data = record(await this.call("/bank-account", { bankCode: bank.code, accountNumber }));
+    requireThat(
+      data.accountNumber === accountNumber &&
         typeof data.bank === "string" &&
         [bank.name, bank.id, bank.code].some(
           (value) => normalise(value) === normalise(data.bank as string),
@@ -298,18 +321,13 @@ export class PajClient {
       "PAJ resolved different bank account details. Do not proceed.",
     );
     const name = text(data.accountName, "account holder name");
-    requireThat(
-      sameName(name, input.expectedName),
-      "NAME_MISMATCH",
-      "The resolved holder name does not match the expected full name.",
-    );
     // Registration returns a Solana-only standing address. Arc payouts must
     // always use the fresh funding address supplied by an Arc order instead.
     return {
       bankId: bank.id,
       bankCode: bank.code,
       bankName: bank.name,
-      accountNumber: input.accountNumber,
+      accountNumber,
       accountName: name,
     };
   }

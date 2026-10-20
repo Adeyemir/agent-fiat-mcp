@@ -25,5 +25,8 @@ jobs:
       - run: npm ci
       - run: npm run format:check
       - run: npm run check
+      - run: npm run backend:check
+      - run: npm run backend:types -- --check
       - run: npm test
+      - run: npm run backend:test
       - run: npm run test:package
