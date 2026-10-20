@@ -3,8 +3,10 @@ import { promisify } from "node:util";
 import { getAddress, type Address } from "viem";
 import { OfframpError, requireThat } from "../errors.js";
 import { record, responseData } from "../http.js";
+import { decimal, units } from "../money.js";
 
 const exec = promisify(execFile);
+const ARC_USDC = "0x3600000000000000000000000000000000000000";
 
 // No shell and no private key. Uses the user's existing Circle agent-wallet session.
 export class CircleAgent {
@@ -51,5 +53,18 @@ export class CircleAgent {
     const data = responseData(await this.command(["wallet", "sign", "typed-data", JSON.stringify(typedData), "--address", this.address, "--chain", this.chain]));
     requireThat(typeof data.signature === "string" && /^0x[0-9a-f]+$/i.test(data.signature), "CIRCLE_SIGNATURE", "Circle did not return a valid signature. No Gateway payment was submitted.");
     return data.signature;
+  }
+
+  async usdcBalance(): Promise<string> {
+    const data = responseData(await this.command(["wallet", "balance", "--address", this.address, "--chain", this.chain, "--token", ARC_USDC]));
+    requireThat(Array.isArray(data.balances) && data.balances.length <= 1, "CIRCLE_BALANCE", "Circle did not return a single Arc USDC token balance.");
+    if (data.balances.length === 0) return "0";
+    const balance = record(data.balances[0]);
+    const token = record(balance.token);
+    // Arc's native 18-decimal balance and ERC-20 6-decimal balance are the same
+    // funds. Request and accept only the ERC-20 view; never add the two views.
+    requireThat(token.symbol === "USDC" && token.blockchain === this.chain && token.decimals === 6 && token.isNative === false && typeof token.tokenAddress === "string" && token.tokenAddress.toLowerCase() === ARC_USDC, "CIRCLE_BALANCE", "Circle returned an unexpected token or source network.");
+    requireThat(typeof balance.amount === "string" && balance.amount.length <= 30 && /^(0|[1-9]\d*)(?:\.\d{1,6})?$/.test(balance.amount), "CIRCLE_BALANCE", "Circle returned an invalid USDC balance.");
+    return /^0(?:\.0+)?$/.test(balance.amount) ? "0" : decimal(units(balance.amount));
   }
 }

@@ -1,4 +1,5 @@
 import { CircleAgent } from "./adapters/circle.js";
+import { arcGatewayBalance } from "./adapters/gateway.js";
 import type { Config } from "./config.js";
 import { publicError, requireThat } from "./errors.js";
 import { jsonRequest, record } from "./http.js";
@@ -18,7 +19,7 @@ export async function inspectReadiness(config: Config, request: JsonRequest = js
   try { token = pajToken(config); } catch (error) { sessionError = publicError(error); }
   const provider = new PajClient(config.pajEnvironment, token, request);
   const gatewayUrl = config.arcNetwork === "mainnet" ? "https://gateway-api.circle.com" : "https://gateway-api-testnet.circle.com";
-  const [rate, gateway, accountAccess] = await Promise.all([
+  const [rate, gateway, accountAccess, circle] = await Promise.all([
     inspect(() => provider.rate()),
     inspect(async () => {
       const response = record(await request(`${gatewayUrl}/v1/info`));
@@ -35,9 +36,16 @@ export async function inspectReadiness(config: Config, request: JsonRequest = js
       requireThat(banks.length > 0, "PROVIDER_BANKS_UNAVAILABLE", "The authenticated PAJ directory did not list a Nigerian bank.");
       return { nigerianBanksAccessible: banks.length };
     }) : Promise.resolve({ ok: false as const, error: sessionError ?? { code: "PROVIDER_LOGIN_REQUIRED", message: "PAJ API access has not been checked. Supply your Business API key locally and run provider:login when available." } }),
+    config.arcAddress ? inspect(async () => {
+      const agent = new CircleAgent(config.circleBin, config.arcAddress!, config.arcNetwork);
+      const cliVersion = await agent.checkVersion();
+      const [walletUsdc, gatewayArcUsdc] = await Promise.all([
+        agent.usdcBalance(),
+        inspect(() => arcGatewayBalance(agent.address, config.arcNetwork, request)),
+      ]);
+      return { cliVersion, walletAuthenticated: true, sourceNetwork: config.arcNetwork, walletUsdc, gatewayArcUsdc, diagnosticOnly: true, simulated: false };
+    }) : Promise.resolve({ checked: false as const, reason: "No Circle Agent Wallet address configured. No wallet login or signature was requested." }),
   ]);
-  let circle: unknown = { checked: false, reason: "No Circle Agent Wallet address configured. No wallet login or signature was requested." };
-  if (config.arcAddress) circle = await inspect(async () => ({ cliVersion: await new CircleAgent(config.circleBin, config.arcAddress!, config.arcNetwork).checkVersion(), walletAuthenticated: "not_checked", sourceNetwork: config.arcNetwork }));
 
   return {
     checkedAt: new Date().toISOString(), mode: config.mode, livePayoutsAvailable: false,

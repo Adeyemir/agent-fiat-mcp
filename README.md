@@ -2,7 +2,7 @@
 
 Ask an agent to cash out **USDC on Arc into a Nigerian bank account**. Save a verified bank account once; future requests use it by default.
 
-> **Current release: a working MCP payout demo plus real provider API checks.** Payout balances, quotes, and bank payouts are simulated. Readiness checks query PAJ and Gateway. Real Arc-to-NGN settlement is not implemented or verified, and live payouts are unavailable.
+> **Current release: a working MCP payout demo plus real wallet and provider API checks.** Payout balances, quotes, and bank payouts are simulated. Readiness checks query PAJ, Circle Agent Wallet, and Gateway. Real Arc-to-NGN settlement is not implemented or verified, and live payouts are unavailable.
 
 The wallet integration targets **Circle Agent Wallet**, through the Circle CLI. The current demo does not access a wallet or move real funds.
 
@@ -78,7 +78,7 @@ In this release, the settlement and provider are simulated. The Circle CLI signi
 | `execute_payout` | Obtain approval and execute the prepared payout once. |
 | `payout_status` | Inspect settlement and provider progress. |
 | `payout_history` | Show the ten most recent payouts. |
-| `get_readiness` | Check provider access, Gateway support, and remaining live-integration blockers. |
+| `get_readiness` | Check real Arc wallet/Gateway balances, provider access, Gateway support, and remaining integration blockers. |
 
 Amounts are decimal strings. `currency: "NGN"` means exact naira to receive; `currency: "USDC"` means maximum total USDC spend including fees. Normal tool results mask bank account numbers and omit settlement addresses. The approval dialog shows the full recipient and exact quote.
 

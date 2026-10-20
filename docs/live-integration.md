@@ -7,9 +7,9 @@
 - A reusable payout service and SQLite store.
 - MCP tools for recipient setup, quotes, approval, execution, and inspection.
 - A simulated provider and settlement ledger.
-- A Circle Agent Wallet helper that calls the Circle CLI with explicit `ARC-TESTNET` or `ARC` arguments, validates the CLI version, and requests typed-data signatures. Testnet is the default; mainnet must be selected explicitly. No private key, Circle API key, or developer-controlled wallet is required by that helper. It has been tested using a fake executable, not a live signature.
+- A Circle Agent Wallet helper that calls the Circle CLI with explicit `ARC-TESTNET` or `ARC` arguments, validates the CLI version, reads the six-decimal USDC token balance, and requests typed-data signatures. Testnet is the default; mainnet must be selected explicitly. No private key, Circle API key, or developer-controlled wallet is required by that helper. Balance reads have been verified against an authenticated mainnet wallet; signing has been tested using a fake executable, not a live signature.
 - A PAJ HTTP client for sessions, NGN bank verification, bank storage, rates, order creation, and order inspection; a local login helper stores the resulting session privately.
-- A read-only readiness command and MCP tool that query PAJ and Gateway and report unresolved integration requirements.
+- A read-only readiness command and MCP tool that query PAJ, Circle Agent Wallet, and Gateway and report unresolved integration requirements. Real wallet USDC and Arc Gateway deposit balances are reported separately from the simulated payout ledger.
 
 The payout runtime currently selects the simulated adapters only. The raw PAJ client is implemented separately; Gateway deposit, Gateway transfer, and real bank payment are not wired into payout execution.
 

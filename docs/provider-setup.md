@@ -36,7 +36,7 @@ Alternatively, supply an existing `PAJ_SESSION_TOKEN` for the selected environme
 npm run provider:check
 ```
 
-This fetches the public off-ramp rate and Gateway supported chains. If a session exists, it checks access to the authenticated Nigerian bank directory. It does not resolve a real account, create a beneficiary, create a payout order, request a wallet signature, or move funds. `livePayoutsAvailable` remains false.
+This fetches the public off-ramp rate and Gateway supported chains. If a session exists, it checks access to the authenticated Nigerian bank directory. With `CIRCLE_ARC_ADDRESS` configured, it reads the Arc wallet balance through your existing Circle session and separately queries that wallet's Arc Gateway deposit balance. These real diagnostic balances do not fund demo payouts. It does not resolve a real account, create a beneficiary, create a payout order, request a wallet signature, or move funds. `livePayoutsAvailable` remains false.
 
 The same operation is available through the `get_readiness` MCP tool. Provider login is a local setup operation, not an MCP tool. Restart your MCP client after adding the tool or changing its environment. If your client launches Node directly, configure an absolute `--env-file-if-exists=/absolute/path/to/.env` argument before `dist/cli.js`, or pass variables in the client's private environment. Do not put credentials in a checked-in MCP configuration.
 

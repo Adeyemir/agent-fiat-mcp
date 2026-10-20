@@ -9,8 +9,8 @@ Defaults require no environment file. For local overrides, copy `.env.example` t
 | `OFFRAMP_MODE` | `demo` | This release runs only in demo mode. `live` fails before opening a payout store. |
 | `OFFRAMP_DATA_DIR` | `~/.local/share/naira-offramp-mcp` | Private local profile directory. Use different directories for different users. |
 | `OFFRAMP_MAX_USDC` | `100` | Maximum total USDC debit per payout, including fees. |
-| `CIRCLE_BIN` | `circle` | Circle CLI executable for the signing scaffold/version diagnostic. |
-| `CIRCLE_ARC_ADDRESS` | unset | Optional address for the Circle CLI version diagnostic. This does not enable live payouts. |
+| `CIRCLE_BIN` | `circle` | Circle CLI executable for wallet balance checks and the signing scaffold. |
+| `CIRCLE_ARC_ADDRESS` | unset | Saved Arc agent wallet address for read-only balance checks. This does not enable live payouts. |
 | `ARC_NETWORK` | `testnet` | Source network for readiness checks and explicit Circle helper network selection. |
 | `PAJ_ENVIRONMENT` | `staging` | PAJ API environment: `staging` or `production`. This is separate from the blockchain network. |
 | `PAJ_API_KEY` | unset | Business API key, used only by local provider login endpoints. |
@@ -21,7 +21,9 @@ The server does not install or update Circle, accept its Terms, authenticate, or
 
 `npm run doctor` reports configuration presence and live availability without printing secrets. In demo mode it does not call Circle unless `CIRCLE_ARC_ADDRESS` is configured, in which case it checks CLI version only. It never signs or pays.
 
-`npm run provider:check` makes read-only PAJ and Gateway API calls. It checks bank-directory access only when a session is already configured. It never initiates login, creates an order, or moves funds. It exits unsuccessfully when the public rate or Gateway check fails; missing authenticated access is reported in the JSON result. A fully successful read-only check still reports `livePayoutsAvailable: false` until settlement is implemented and verified.
+`npm run provider:check` makes read-only PAJ and Gateway API calls. It checks bank-directory access only when a session is already configured. With `CIRCLE_ARC_ADDRESS` configured, it also queries the existing Circle CLI session for the real Arc wallet's USDC balance, and Gateway for USDC deposited by that wallet on Arc. These are separate diagnostic balances; demo payout tools still use the simulated ledger. The Arc token check uses the six-decimal ERC-20 view, without adding the native balance a second time. The Gateway balance query uses a read-only POST and excludes balances on other source chains.
+
+The check never initiates login, creates an order, or moves funds. It exits unsuccessfully when the public rate or Gateway supported-chains check fails; missing authenticated access and wallet balance errors are reported in the JSON result. A fully successful read-only check still reports `livePayoutsAvailable: false` until settlement is implemented and verified.
 
 Provider login and private session handling are described in [provider setup](provider-setup.md). Saved PAJ session tokens are environment-specific, permission-restricted files in the private data directory; they contain no API key or OTP.
 
