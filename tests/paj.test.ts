@@ -155,7 +155,7 @@ test("existing PAJ orders are checked by ID and immutable details before any fun
 test("private sessions are environment-specific, permission-restricted, and reject expiry", t => {
   const dir = mkdtempSync(join(tmpdir(), "offramp-provider-session-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const config = loadConfig({ OFFRAMP_DATA_DIR: dir });
+  const config = loadConfig({ OFFRAMP_DATA_DIR: dir, PAJ_ENVIRONMENT: "staging" });
   const session: PajSession = { environment: "staging", token: "fake-test-session", expiresAt: new Date(Date.now() + 60_000).toISOString() };
   savePajSession(config, session);
   const path = join(dir, "paj-session-staging.json");
@@ -176,7 +176,7 @@ test("readiness performs only public reads when not logged in and reports actual
     if (url.includes("gateway-api")) return { domains: [{ chain: "Arc", domain: 26, network: "Testnet" }, { chain: "Solana", domain: 5, network: "Devnet" }] };
     return rate;
   };
-  const config = loadConfig({ OFFRAMP_DATA_DIR: join(tmpdir(), "nonexistent-naira-offramp-profile") });
+  const config = loadConfig({ OFFRAMP_DATA_DIR: join(tmpdir(), "nonexistent-naira-offramp-profile"), ARC_NETWORK: "testnet" });
   const result = await inspectReadiness(config, request);
   assert.equal(result.livePayoutsAvailable, false);
   assert.equal(result.provider.directArcSettlementDocumented, false);

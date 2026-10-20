@@ -1,17 +1,18 @@
 # Live integration status
 
-**No live Arc-to-NGN route is shipped or verified in this release.** Setting `OFFRAMP_MODE=live` fails with `LIVE_ROUTE_UNAVAILABLE`. Credentials or a verification flag cannot enable it.
+**Live wallet and bank setup is the default. Arc-to-NGN cashout settlement is still unfinished and unverified.** `OFFRAMP_MODE=live` runs the real account tools; it does not register payout tools or substitute a simulator. No verification flag enables cashouts.
 
 ## What exists
 
 - A reusable payout service and SQLite store.
-- MCP tools for recipient setup, quotes, approval, execution, and inspection.
-- A simulated provider and settlement ledger.
+- Default MCP tools for real wallet balances, the PAJ bank directory, account/name verification, local recipient setup after human approval, and integration status.
+- A payout lifecycle service with quote, approval, execution and inspection logic, currently exercised through explicitly selected simulation and tests.
+- A development simulator with separate storage, enabled only through `OFFRAMP_MODE=demo` or the isolated `npm run demo` script.
 - A Circle Agent Wallet helper that calls the Circle CLI with explicit `ARC-TESTNET` or `ARC` arguments, validates the CLI version, reads the six-decimal USDC token balance, and requests typed-data signatures. Testnet is the default; mainnet must be selected explicitly. No private key, Circle API key, or developer-controlled wallet is required by that helper. Balance reads have been verified against an authenticated mainnet wallet; signing has been tested using a fake executable, not a live signature.
 - A PAJ HTTP client for sessions, NGN bank verification, bank storage, rates, order creation, and order inspection; a local login helper stores the resulting session privately.
 - A read-only readiness command and MCP tool that query PAJ, Circle Agent Wallet, and Gateway and report unresolved integration requirements. Real wallet USDC and Arc Gateway deposit balances are reported separately from the simulated payout ledger.
 
-The payout runtime currently selects the simulated adapters only. The raw PAJ client is implemented separately; Gateway deposit, Gateway transfer, and real bank payment are not wired into payout execution.
+The default runtime uses Circle Agent Wallet for actual balances and PAJ for recipient verification. Verified recipients are saved locally, separately from demo data. Gateway deposit, Gateway transfer, provider order funding, and real bank payment are not wired into payout execution.
 
 ## Settlement research
 

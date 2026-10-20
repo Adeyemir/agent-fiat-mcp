@@ -2,7 +2,7 @@
 
 ## Current status
 
-The raw HTTP client is implemented from PAJ's [official API reference](https://github.com/paj-cash/paj_ramp/blob/main/lib/API_REFERENCE.md), repository revision `6205abba52efeafb401572ff1cfdf8e8b0c381ec`, checked 2026-10-19. It is separate from the MCP payout runtime, which still uses simulated adapters. Provider access does not enable live payouts.
+The HTTP client is implemented from PAJ's [official API reference](https://github.com/paj-cash/paj_ramp/blob/main/lib/API_REFERENCE.md), repository revision `6205abba52efeafb401572ff1cfdf8e8b0c381ec`, checked 2026-10-19. The default MCP uses it for the Nigerian bank directory and exact account/name verification, with human approval before saving a recipient locally. Order creation and funding are not connected to the MCP. Provider access does not enable live payouts.
 
 ## Get API access
 
@@ -11,9 +11,9 @@ Use your own account at the [PAJ Business dashboard](https://developer.paj.cash/
 Copy `.env.example` to `.env` locally, restrict the file to your user (`chmod 600 .env`), and set:
 
 ```dotenv
-OFFRAMP_MODE=demo
-PAJ_ENVIRONMENT=staging
-ARC_NETWORK=testnet
+OFFRAMP_MODE=live
+PAJ_ENVIRONMENT=production
+ARC_NETWORK=mainnet
 PAJ_API_KEY=your_business_key
 PAJ_EMAIL=your_account_email
 ```
@@ -56,7 +56,7 @@ PAJ's [published API reference](https://github.com/paj-cash/paj_ramp/blob/main/l
 >
 > Please share the fee, expiry, minimum/maximum payout, and bank-credit confirmation rules for that route before we fund a test order.
 
-This is a draft for the maintainer to send; the project has not contacted PAJ or received route approval. No API keys, session tokens, wallet addresses, or bank details are needed in the initial inquiry.
+The maintainer sent the settlement inquiry to PAJ on 2026-10-20. A reply and route confirmation are pending. No API keys, session tokens, wallet addresses, or bank details are needed in the initial inquiry.
 
 ### Details to confirm before funding an order
 

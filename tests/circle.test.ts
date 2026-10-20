@@ -8,6 +8,8 @@ import { OfframpError, publicError } from "../src/errors.js";
 import { loadConfig } from "../src/config.js";
 import { inspectReadiness } from "../src/readiness.js";
 import type { JsonRequest } from "../src/providers/paj.js";
+import { LiveService } from "../src/live-service.js";
+import { Store } from "../src/store.js";
 
 const address = "0x1111111111111111111111111111111111111111";
 const token = { name: "USDC", symbol: "USDC", blockchain: "ARC", decimals: 6, isNative: false, tokenAddress: "0x3600000000000000000000000000000000000000" };
@@ -44,6 +46,28 @@ test("Arc USDC diagnostics request only the six-decimal token and keep the real 
   assert.deepEqual(JSON.parse(readFileSync(log, "utf8")), ["wallet", "balance", "--address", address, "--chain", "ARC", "--token", token.tokenAddress, "--output", "json"]);
 });
 
+test("the live account service reads the wallet instead of the simulator's 100 USDC ledger", async t => {
+  const { binary } = fakeCircle(t, "1.2.2", false, { data: { balances: [balance] } });
+  const store = new Store(":memory:");
+  t.after(() => store.close());
+  store.initialiseDemo();
+  const service = new LiveService(loadConfig({ CIRCLE_BIN: binary, CIRCLE_ARC_ADDRESS: address }), store);
+  assert.deepEqual(await service.balance(), {
+    mode: "live", simulated: false, source: "USDC on Arc", network: "mainnet",
+    walletUsdc: "1.358872", spendableUsdc: null, livePayoutsAvailable: false,
+  });
+  assert.equal(store.demoBalance(), 100_000_000n);
+});
+
+test("a live wallet failure cannot fall back to a simulated balance", async t => {
+  const { binary } = fakeCircle(t, "1.2.2", true);
+  const store = new Store(":memory:");
+  t.after(() => store.close());
+  store.initialiseDemo();
+  const service = new LiveService(loadConfig({ CIRCLE_BIN: binary, CIRCLE_ARC_ADDRESS: address }), store);
+  await assert.rejects(service.balance(), (error: unknown) => error instanceof OfframpError && error.code === "CIRCLE_ERROR");
+});
+
 test("a missing token or an explicit zero balance is zero, not a positive amount error", async t => {
   for (const balances of [[], [{ ...balance, amount: "0.000000" }]]) {
     const { agent } = fakeCircle(t, "1.2.2", false, { data: { balances } });
@@ -78,7 +102,7 @@ test("readiness separates real wallet and Arc Gateway balances without enabling 
     if (url.endsWith("/v1/info")) return { domains: [{ chain: "Arc", domain: 26, network: "Mainnet" }] };
     return { baseCurrency: "USD", targetCurrency: "NGN", rate: 1500, type: "offRamp" };
   };
-  const config = loadConfig({ CIRCLE_BIN: binary, CIRCLE_ARC_ADDRESS: address, ARC_NETWORK: "mainnet", OFFRAMP_DATA_DIR: join(tmpdir(), "nonexistent-naira-offramp-profile") });
+  const config = loadConfig({ OFFRAMP_MODE: "demo", CIRCLE_BIN: binary, CIRCLE_ARC_ADDRESS: address, ARC_NETWORK: "mainnet", OFFRAMP_DATA_DIR: join(tmpdir(), "nonexistent-naira-offramp-profile") });
   const result = await inspectReadiness(config, request);
   assert.equal(result.mode, "demo");
   assert.equal(result.livePayoutsAvailable, false);

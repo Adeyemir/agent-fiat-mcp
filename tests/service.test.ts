@@ -7,7 +7,6 @@ import { DemoProvider, DemoSettlement } from "../src/adapters/demo.js";
 import { loadConfig } from "../src/config.js";
 import { OfframpError } from "../src/errors.js";
 import { decimal, units } from "../src/money.js";
-import { createRuntime } from "../src/runtime.js";
 import { PayoutService } from "../src/service.js";
 import { Store } from "../src/store.js";
 import type { Mode } from "../src/types.js";
@@ -203,8 +202,7 @@ test("a slow status response cannot overwrite a completion already observed", as
   assert.equal((await older).state, "completed");
 });
 
-test("live mode cannot be switched on with a flag or credentials", () => {
-  assert.throws(() => createRuntime(loadConfig({ OFFRAMP_MODE: "live", PAJ_GATEWAY_SETTLEMENT_VERIFIED: "true", PAJ_SESSION_TOKEN: "dummy" })), code("LIVE_ROUTE_UNAVAILABLE"));
+test("an invalid mode is rejected", () => {
   assert.throws(() => loadConfig({ OFFRAMP_MODE: "typo" }), code("INVALID_CONFIG"));
 });
 

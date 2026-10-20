@@ -1,4 +1,5 @@
 export { PayoutService } from "./service.js";
+export { LiveService } from "./live-service.js";
 export { Store } from "./store.js";
 export { createMcpServer } from "./mcp.js";
 export { createRuntime } from "./runtime.js";

@@ -27,7 +27,7 @@ export class DemoProvider implements OfframpProvider {
 
 export class DemoSettlement implements ArcSettlement {
   readonly name = "Simulated Arc settlement";
-  constructor(private readonly store: Store) {}
+  constructor(private readonly store: Store) { store.initialiseDemo(); }
   async balance() { return { walletUsdc: decimal(this.store.demoBalance()), spendableUsdc: decimal(this.store.demoBalance()) }; }
   async prepare(order: ProviderOrder): Promise<SettlementPlan> {
     return { feeUnits: "50000", totalUnits: (BigInt(order.usdcUnits) + 50_000n).toString(), expiresAt: order.expiresAt, payload: { demo: true, orderId: order.id } };

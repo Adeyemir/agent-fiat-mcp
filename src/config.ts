@@ -12,10 +12,10 @@ export interface Config {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const mode = env.OFFRAMP_MODE ?? "demo";
+  const mode = env.OFFRAMP_MODE ?? "live";
   requireThat(mode === "demo" || mode === "live", "INVALID_CONFIG", "OFFRAMP_MODE must be demo or live.");
-  const pajEnvironment = env.PAJ_ENVIRONMENT ?? "staging";
-  const arcNetwork = env.ARC_NETWORK ?? "testnet";
+  const pajEnvironment = env.PAJ_ENVIRONMENT ?? "production";
+  const arcNetwork = env.ARC_NETWORK ?? "mainnet";
   requireThat(pajEnvironment === "staging" || pajEnvironment === "production", "INVALID_CONFIG", "PAJ_ENVIRONMENT must be staging or production.");
   requireThat(arcNetwork === "testnet" || arcNetwork === "mainnet", "INVALID_CONFIG", "ARC_NETWORK must be testnet or mainnet.");
   return {

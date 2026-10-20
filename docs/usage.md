@@ -6,18 +6,20 @@ Defaults require no environment file. For local overrides, copy `.env.example` t
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OFFRAMP_MODE` | `demo` | This release runs only in demo mode. `live` fails before opening a payout store. |
+| `OFFRAMP_MODE` | `live` | Real wallet reads, PAJ bank directory, bank verification and local recipient setup. Cashout tools are unavailable until settlement is connected. `demo` explicitly enables simulated payouts. |
 | `OFFRAMP_DATA_DIR` | `~/.local/share/naira-offramp-mcp` | Private local profile directory. Use different directories for different users. |
 | `OFFRAMP_MAX_USDC` | `100` | Maximum total USDC debit per payout, including fees. |
 | `CIRCLE_BIN` | `circle` | Circle CLI executable for wallet balance checks and the signing scaffold. |
 | `CIRCLE_ARC_ADDRESS` | unset | Saved Arc agent wallet address for read-only balance checks. This does not enable live payouts. |
-| `ARC_NETWORK` | `testnet` | Source network for readiness checks and explicit Circle helper network selection. |
-| `PAJ_ENVIRONMENT` | `staging` | PAJ API environment: `staging` or `production`. This is separate from the blockchain network. |
+| `ARC_NETWORK` | `mainnet` | Source network for wallet reads, readiness checks and explicit Circle helper network selection. |
+| `PAJ_ENVIRONMENT` | `production` | PAJ API environment: `staging` or `production`. This is separate from the blockchain network. |
 | `PAJ_API_KEY` | unset | Business API key, used only by local provider login endpoints. |
 | `PAJ_EMAIL` | unset | Email for local PAJ login; otherwise entered interactively. |
 | `PAJ_SESSION_TOKEN` | unset | Optional session-token override for the selected PAJ environment. A private saved session is used otherwise. |
 
 The server does not install or update Circle, accept its Terms, authenticate, or ask for private keys. Circle Agent Wallet signing glue uses an existing local Circle CLI session. It is not connected to demo execution.
+
+The default server exposes `get_balance`, `list_banks`, `get_default_bank`, `set_default_bank`, and `get_readiness`. `get_balance` reads actual wallet USDC. `spendableUsdc: null` means the cashout spendable balance is unknown while settlement is unfinished. Missing credentials or wallet failures return errors; they never produce a simulated balance. `set_default_bank` resolves the full bank account and holder name with PAJ, then requests human approval to save the recipient locally. It does not call the provider's order or save-bank endpoints.
 
 `npm run doctor` reports configuration presence and live availability without printing secrets. In demo mode it does not call Circle unless `CIRCLE_ARC_ADDRESS` is configured, in which case it checks CLI version only. It never signs or pays.
 
@@ -29,22 +31,36 @@ Provider login and private session handling are described in [provider setup](pr
 
 ## Local approval fallback
 
-A client without form elicitation can still inspect balances and prepare quotes. Human approval can happen in an interactive terminal on the same machine and with the same `OFFRAMP_DATA_DIR`:
+A client without form elicitation can still inspect balances, banks and integration status. Human approval for recipient setup can happen in an interactive terminal on the same machine and with the same `OFFRAMP_DATA_DIR`:
 
 ```sh
 npm start -- set-bank
 npm start -- approve YOUR_PREPARED_PAYOUT_ID
 ```
 
-Review the details and type `APPROVE`. Piped input is refused. These are optional local review commands, and they currently work only with the fake demo bank. They do not add a model-controlled approval flag to the MCP tools.
+Review the details and type `APPROVE`. Piped input is refused. `set-bank` verifies a real account with PAJ in live mode. `approve` is currently available only for explicitly simulated payouts; it cannot enable real settlement. No model-controlled approval flag is accepted.
+
+## Development simulator
+
+The simulator is selected explicitly:
+
+```sh
+npm run demo
+# Or serve the simulated MCP tools:
+OFFRAMP_MODE=demo npm start
+```
+
+It accepts only Demo Bank / 0000000000 / DEMO USER. Save that recipient, prepare a quote, approve it and inspect the simulated result to test the payout lifecycle. Only this mode exposes `prepare_payout`, `execute_payout`, `payout_status` and `payout_history`. It never moves money. Remove any old `OFFRAMP_MODE=demo` setting from your private environment or MCP configuration to use the real account tools, and reconnect your client.
 
 ## Local data
 
-The SQLite database stores the recipient, quotes, provider references, and payout state. The file is created with mode `0600`, and a new profile directory with mode `0700`. This is local file protection, not database encryption. The MCP server serves one local user/profile; it has no hosted multi-user authentication layer.
+SQLite stores the verified recipient and, in simulation, quotes and payout state. Live account data uses `offramp-live-<provider-environment>-<arc-network>.sqlite`; simulated payouts use the separate `offramp.sqlite` file. Recipients are scoped to the selected environment/network. Live profiles do not create a simulated balance or transfer ledger. Files are created with mode `0600`, and a new profile directory with mode `0700`. This is local file protection, not database encryption. The MCP server serves one local user/profile; it has no hosted multi-user authentication layer.
 
 Demo mode starts with 100 simulated USDC per profile. Simulated debits survive server restarts. `npm run demo` always uses an isolated temporary profile, so it can be repeated without changing your MCP profile.
 
 ## Payout state
+
+This lifecycle is implemented in the payout service and exercised through the simulator. Live settlement adapters are unfinished.
 
 ```mermaid
 stateDiagram-v2
