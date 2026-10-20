@@ -2,7 +2,9 @@
 
 ## Configuration
 
-`npm start`, `npm run dev` and setup commands load `.env` from the current directory. An MCP client launching Node directly should pass the absolute `--env-file` path or provide a private environment.
+The CLI reads `provider.env` from `~/.local/share/naira-offramp-mcp`, regardless of its working directory. Run `init` to create the template. Environment variables take precedence over saved values. Set `OFFRAMP_DATA_DIR` in the launching environment to select a different profile; that variable is not read from `provider.env`.
+
+The CLI does not load a working directory's `.env` automatically. Source-checkout scripts such as `npm start` and `npm run dev` still support it through Node's `--env-file-if-exists=.env`; explicit `--env-file` values take precedence over the saved profile. Programmatic callers can use `loadProfileConfig()` for the same behavior, or pass a `Config` directly to `createRuntime()`.
 
 | Variable                           | Default                            | Purpose                                                |
 | ---------------------------------- | ---------------------------------- | ------------------------------------------------------ |
@@ -52,25 +54,25 @@ Use `payout_status` to poll that order. PAJ `COMPLETED` becomes `provider_comple
 For clients without human forms, prepare a one-off recipient in an interactive terminal:
 
 ```sh
-npm start -- quote 5000 NGN --recipient
+npx --yes naira-offramp-mcp@0.1.0 quote 5000 NGN --recipient
 ```
 
-The command prompts for recipient details and opens an unfunded order. Alternatively, save an optional default with `npm start -- set-bank`, then omit `--recipient` when quoting.
+The command prompts for recipient details and opens an unfunded order. Alternatively, save an optional default with `npx --yes naira-offramp-mcp@0.1.0 set-bank`, then omit `--recipient` when quoting.
 
 Only when you intend to transfer, review and approve the prepared order:
 
 ```sh
-npm start -- approve YOUR_PREPARED_PAYOUT_ID
+npx --yes naira-offramp-mcp@0.1.0 approve YOUR_PREPARED_PAYOUT_ID
 ```
 
 Read the complete terms and type `APPROVE`. Piped approval is refused. Track the same payment with:
 
 ```sh
-npm start -- status YOUR_PREPARED_PAYOUT_ID
-npm start -- history
+npx --yes naira-offramp-mcp@0.1.0 status YOUR_PREPARED_PAYOUT_ID
+npx --yes naira-offramp-mcp@0.1.0 history
 ```
 
-`npm start` without a subcommand runs the stdio MCP server and waits for a client.
+The package command without a subcommand runs the stdio MCP server and waits for a client. Installing it alone does not connect an agent: register the server in your MCP client once, as shown in the [README](../README.md#connect-your-agent). For a source checkout, use `node dist/cli.js` in place of the pinned `npx` command.
 
 ## Recovery and storage
 

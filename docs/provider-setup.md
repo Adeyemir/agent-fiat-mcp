@@ -4,7 +4,7 @@
 
 Obtain a Business API key from the [PAJ dashboard](https://developer.paj.cash/). This integration uses the [PAJ v2 API](https://docs.paj.cash/) at `https://api.paj.cash/pub/v2`, authenticated by `x-api-key`.
 
-Configure your private `.env`:
+Run `npx --yes naira-offramp-mcp@0.1.0 init` once, then edit the private `provider.env` path it prints:
 
 ```dotenv
 PAJ_API_KEY=your_business_api_key
@@ -13,7 +13,7 @@ ARC_NETWORK=mainnet
 CIRCLE_ARC_ADDRESS=your_arc_agent_wallet_address
 ```
 
-Protect the file with `chmod 600 .env`. Keep credentials out of MCP arguments and version control.
+`init` creates the file with mode `0600` and never overwrites an existing file. Keep credentials out of MCP arguments, chat messages and version control. Every installation needs the user's own PAJ Business API key and Circle login.
 
 ## Circle Agent Wallet
 
@@ -30,11 +30,11 @@ Set its address as `CIRCLE_ARC_ADDRESS`. This is a one-time source-wallet config
 ## Check access
 
 ```sh
-npm run doctor
-npm run provider:check
+npx --yes naira-offramp-mcp@0.1.0 doctor
+npx --yes naira-offramp-mcp@0.1.0 provider-check
 ```
 
-`doctor` checks local configuration and CLI version. `provider:check` reads the NGN rate, active Arc support, bank directory, authenticated agent-wallet ownership and balance. It does not register recipients or create payment orders.
+`doctor` checks local configuration and CLI version. `provider-check` reads the NGN rate, active Arc support, bank directory, authenticated agent-wallet ownership and balance. It does not register recipients or create payment orders. For a source checkout, use `node dist/cli.js` in place of the pinned `npx` command.
 
 `livePayoutsAvailable` reflects those current checks. The successful live payment and recipient-confirmed bank credit are documented in [verification evidence](live-integration.md).
 
@@ -42,7 +42,7 @@ npm run provider:check
 
 Provide the bank name/code, ten-digit account number and expected full holder name when preparing a payment. PAJ resolves the account and the name must match. A one-off recipient does not become the local default.
 
-Saving a default is optional, through `set_default_bank` or `npm start -- set-bank`. PAJ registration happens before approval to save locally, so the provider's registration can remain if local saving is declined.
+Saving a default is optional, through `set_default_bank` or `npx --yes naira-offramp-mcp@0.1.0 set-bank`. PAJ registration happens before approval to save locally, so the provider's registration can remain if local saving is declined.
 
 Arc payments fund the fresh address returned for each order. The standing address returned by PAJ bank registration is not used. Payment preparation requires production and Arc mainnet.
 

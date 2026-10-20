@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { loadConfig } from "./config.js";
+import { initProfile, loadProfileConfig } from "./profile.js";
+import { packageInfo } from "./package-info.js";
 import { CircleAgent } from "./adapters/circle.js";
 import { publicError, requireThat } from "./errors.js";
 import { createMcpServer, payoutApprovalMessage } from "./mcp.js";
@@ -18,7 +19,7 @@ async function readBank(reader: ReturnType<typeof createInterface>): Promise<Ban
 }
 
 async function doctor() {
-  const config = loadConfig();
+  const config = loadProfileConfig();
   let circleVersion: unknown = "Not checked: no Arc agent wallet configured.";
   if (config.arcAddress) {
     try {
@@ -41,8 +42,8 @@ async function doctor() {
         providerEnvironment: config.pajEnvironment,
         arcNetwork: config.arcNetwork,
         providerApiVersion: "v2",
-        providerApiKeyInEnvironment: Boolean(config.pajApiKey),
-        nextStep: "Run provider:check, connect your MCP client, then prepare a payout for review.",
+        providerApiKeyConfigured: Boolean(config.pajApiKey),
+        nextStep: "Run provider-check, connect your MCP client, then prepare a payout for review.",
       },
       null,
       2,
@@ -52,13 +53,33 @@ async function doctor() {
 
 async function main() {
   const [command, payoutId, ...extra] = process.argv.slice(2);
+  if (command === "init") {
+    requireThat(payoutId === undefined, "INVALID_COMMAND", "init takes no arguments.");
+    console.log(
+      JSON.stringify(
+        {
+          ...initProfile(),
+          nextStep:
+            "Edit this private file to set PAJ_API_KEY and CIRCLE_ARC_ADDRESS, authenticate with Circle, then run provider-check and register the MCP server.",
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (command === "--version") {
+    requireThat(payoutId === undefined, "INVALID_COMMAND", "--version takes no arguments.");
+    console.log(packageInfo.version);
+    return;
+  }
   if (command === "doctor") {
     requireThat(payoutId === undefined, "INVALID_COMMAND", "doctor takes no arguments.");
     return doctor();
   }
   if (command === "provider-check") {
     requireThat(payoutId === undefined, "INVALID_COMMAND", "provider-check takes no arguments.");
-    const readiness = await inspectReadiness(loadConfig());
+    const readiness = await inspectReadiness(loadProfileConfig());
     console.log(JSON.stringify(readiness, null, 2));
     if (!readiness.livePayoutsAvailable) process.exitCode = 1;
     return;
@@ -129,6 +150,7 @@ async function main() {
         "Usage: naira-offramp-mcp [command]",
         "",
         "  serve                                      Run the stdio MCP server (default)",
+        "  init                                       Create a private configuration file",
         "  doctor                                     Check local configuration",
         "  provider-check                             Check PAJ and wallet access",
         "  set-bank                                   Save an optional default recipient",
@@ -136,6 +158,7 @@ async function main() {
         "  approve <payout-id>                         Review and approve a transfer",
         "  status <payout-id>                          Track an existing payout",
         "  history                                    List recent payouts",
+        "  --version                                  Print the package version",
         "",
         "Transfers require human approval. NGN and network fees are estimates.",
       ].join("\n"),

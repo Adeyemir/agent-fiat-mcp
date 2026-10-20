@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { publicError, requireThat } from "./errors.js";
+import { packageInfo } from "./package-info.js";
 import type { LiveService } from "./live-service.js";
 import type { LivePayoutSummary } from "./live-types.js";
 import type { BankAccount } from "./types.js";
@@ -78,14 +79,11 @@ export function createMcpServer(
   service: LiveService,
   options: { readiness?: () => Promise<unknown> } = {},
 ): McpServer {
-  const server = new McpServer(
-    { name: "naira-offramp-mcp", version: "0.1.0" },
-    {
-      instructions:
-        "Pay Nigerian bank accounts from Circle Agent Wallet USDC on Arc. Use an explicitly requested recipient or optional saved default. Prepare an unfunded quote, show all recipient, NGN and fee terms, then obtain human elicitation approval before execution. Never resend an uncertain transfer or create a replacement for it. Track existing orders with payout_status. NGN and gas are estimates; Circle's CLI does not hard-cap gas. A USDC request is a budget with a retained gas reserve. PAJ applies its rate when it observes the deposit. provider_completed means PAJ reports completion; bank credit is not automatically observed. Service discovery, booking and merchant fulfilment require separate tools.",
-      maxToolInputElements: 30,
-    },
-  );
+  const server = new McpServer(packageInfo, {
+    instructions:
+      "Pay Nigerian bank accounts from Circle Agent Wallet USDC on Arc. Use an explicitly requested recipient or optional saved default. Prepare an unfunded quote, show all recipient, NGN and fee terms, then obtain human elicitation approval before execution. Never resend an uncertain transfer or create a replacement for it. Track existing orders with payout_status. NGN and gas are estimates; Circle's CLI does not hard-cap gas. A USDC request is a budget with a retained gas reserve. PAJ applies its rate when it observes the deposit. provider_completed means PAJ reports completion; bank credit is not automatically observed. Service discovery, booking and merchant fulfilment require separate tools.",
+    maxToolInputElements: 30,
+  });
 
   function requireApprovalSupport() {
     const capabilities = server.server.getClientCapabilities()?.elicitation;

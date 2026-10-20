@@ -57,9 +57,11 @@ test("CLI refuses piped approval and one-off recipient entry before opening a pr
   assert.equal(existsSync(join(dir, "offramp-live-production-mainnet.sqlite")), false);
 });
 
-test("CLI help lists the supported payment commands", async () => {
-  const { stdout } = await run(["--help"]);
-  for (const command of ["--recipient", "status <payout-id>", "history"])
+test("CLI help and version work without loading an invalid payment configuration", async () => {
+  const env = { OFFRAMP_MODE: "invalid", CIRCLE_BIN: "must-not-be-called" };
+  const { stdout } = await run(["--help"], env);
+  for (const command of ["init", "--version", "--recipient", "status <payout-id>", "history"])
     assert.ok(stdout.includes(command));
   assert.equal(stdout.includes("provider-login"), false);
+  assert.match((await run(["--version"], env)).stdout.trim(), /^\d+\.\d+\.\d+$/);
 });

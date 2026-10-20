@@ -25,41 +25,44 @@ Specify a recipient for each payment, or optionally save a default. The recipien
 
 Requires Node.js **22.13+**, Circle CLI **1.2.1+**, a funded Circle Agent Wallet on Arc, and a PAJ Business API key.
 
+> The npm release is being prepared. The commands below will work after `0.1.0` is published. Until then, use the [source installation](CONTRIBUTING.md#source-installation).
+
+Create your private configuration once:
+
 ```sh
-git clone https://github.com/Adeyemir/naira-offramp-mcp.git
-cd naira-offramp-mcp
-npm ci
-npm run build
-cp -n .env.example .env
-chmod 600 .env
+npx --yes naira-offramp-mcp@0.1.0 init
 ```
 
-Set `PAJ_API_KEY` and `CIRCLE_ARC_ADDRESS` in your private `.env`, and authenticate through the Circle CLI. See [provider and wallet setup](docs/provider-setup.md).
+Edit the returned `provider.env` file, normally at `~/.local/share/naira-offramp-mcp/provider.env`. Set your own `PAJ_API_KEY` and `CIRCLE_ARC_ADDRESS`, and authenticate through the Circle CLI. Existing configuration files are preserved. See [provider and wallet setup](docs/provider-setup.md).
 
 Check the setup without moving funds:
 
 ```sh
-npm run doctor
-npm run provider:check
+npx --yes naira-offramp-mcp@0.1.0 doctor
+npx --yes naira-offramp-mcp@0.1.0 provider-check
 ```
 
 ## Connect your agent
 
-Replace `/absolute/path` with the checkout's absolute path. The MCP server uses your client's model; this project does not require an LLM API key.
+Register the server once with a client that supports local stdio MCP servers. Installing the npm package alone does not register its tools with your agent. The server uses your client's model; this project does not require an LLM API key.
+
+The client launches the package when it connects and makes its tools available to the agent. It uses the local user's Circle session and private configuration. A wallet address alone does not grant spending access. Each user supplies their own wallet and PAJ key; you do not deploy a shared server.
 
 ### Codex
 
 ```sh
-codex mcp add naira-offramp -- node --env-file="/absolute/path/naira-offramp-mcp/.env" "/absolute/path/naira-offramp-mcp/dist/cli.js"
+codex mcp add naira-offramp -- npx --yes naira-offramp-mcp@0.1.0
 ```
 
 ### Claude Code
 
 ```sh
-claude mcp add --transport stdio naira-offramp -- node --env-file="/absolute/path/naira-offramp-mcp/.env" "/absolute/path/naira-offramp-mcp/dist/cli.js"
+claude mcp add --transport stdio naira-offramp -- npx --yes naira-offramp-mcp@0.1.0
 ```
 
-Reconnect your client after registration. See the official [Codex MCP guide](https://developers.openai.com/codex/mcp) and [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
+For another compatible client, set the command to `npx` and arguments to `["--yes", "naira-offramp-mcp@0.1.0"]`. Reconnect your client after registration. See the official [Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
+
+You can alternatively run `npm install --global naira-offramp-mcp@0.1.0` and register the `naira-offramp-mcp` command. Both methods run the same MCP server. Configuration and payout history stay outside the installed package, so upgrades preserve them. These examples pin a version; update it deliberately when adopting a new release.
 
 Try these requests in your private client:
 
@@ -104,6 +107,7 @@ npm run format:check
 npm run check
 npm test
 npm run build
+npm run test:package
 ```
 
 Tests use controlled PAJ responses, fake Circle executables and temporary databases. They require no credentials and move no real money. The runtime contains one payment implementation: PAJ v2 with Circle Agent Wallet on Arc.

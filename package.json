@@ -4,6 +4,23 @@
   "description": "Let AI agents pay Nigerian bank accounts from Circle Agent Wallet USDC on Arc.",
   "type": "module",
   "license": "MIT",
+  "homepage": "https://github.com/Adeyemir/naira-offramp-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/Adeyemir/naira-offramp-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "circle",
+    "arc",
+    "usdc",
+    "ngn",
+    "payments",
+    "paj"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "engines": {
     "node": ">=22.13.0"
   },
@@ -34,6 +51,7 @@
     "doctor": "node --env-file-if-exists=.env --import tsx src/cli.ts doctor",
     "provider:check": "node --env-file-if-exists=.env --import tsx src/cli.ts provider-check",
     "test": "node --import tsx --test tests/*.test.ts",
+    "test:package": "npm run build && node scripts/smoke-package.mjs",
     "prepack": "npm run build"
   },
   "dependencies": {

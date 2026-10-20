@@ -16,6 +16,10 @@ export interface Config {
   arcNetwork: "testnet" | "mainnet";
 }
 
+export function dataDirectory(env: NodeJS.ProcessEnv = process.env): string {
+  return resolve(env.OFFRAMP_DATA_DIR ?? join(homedir(), ".local", "share", "naira-offramp-mcp"));
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const mode = env.OFFRAMP_MODE ?? "live";
   requireThat(
@@ -37,9 +41,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   );
   return {
     mode,
-    dataDir: resolve(
-      env.OFFRAMP_DATA_DIR ?? join(homedir(), ".local", "share", "naira-offramp-mcp"),
-    ),
+    dataDir: dataDirectory(env),
     maximumUnits: units(env.OFFRAMP_MAX_USDC ?? "100"),
     circleBin: env.CIRCLE_BIN ?? "circle",
     networkFeeReserveUnits: units(env.OFFRAMP_NETWORK_FEE_RESERVE_USDC ?? "0.05"),
