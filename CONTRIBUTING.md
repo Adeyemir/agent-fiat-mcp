@@ -1,18 +1,41 @@
 # Contributing
 
-Start with Node.js 22.13+, `npm ci`, and the commands in the README. Keep changes focused on Arc USDC to NGN until the first live route is verified.
+The current scope is payments from Circle Agent Wallet USDC on Arc to Nigerian bank accounts through PAJ. Keep changes focused and explain any changes to payment behavior.
 
-The core interfaces are in `src/types.ts`:
+## Development
 
-- `OfframpProvider` verifies recipients, quotes orders, and reports the provider's payout status.
-- `ArcSettlement` reports spendable funds, prepares fees, authorizes settlement, submits it once, and checks delivery.
-- `PayoutService` coordinates approval, limits, persistence, and the payout lifecycle.
-- `createMcpServer` exposes that service to an MCP client.
+Use Node.js 22.13 or newer:
 
-The default live implementation is `LiveService`, using PAJ v2 and Circle Agent Wallet directly on Arc. Its NGN and gas fields are estimates, with no hard CLI gas cap. `PayoutService` remains the generic/simulated lifecycle and must not be used to claim a guaranteed rate for PAJ. Test changes to order identity, pooled-address expiry, source binding, approval, submission persistence and reconciliation before enabling money-moving operations. Provider completion is separate from independently verified bank credit.
+```sh
+npm ci
+npm run format:check
+npm run check
+npm test
+npm run build
+```
 
-Keep financial amounts as integer base units internally and decimal strings at tool boundaries. A USDC budget includes fees. Never infer bank credit from a blockchain transaction, add model-controlled approval booleans, or automatically resend after a timeout.
+Tests use fixtures and temporary databases. No PAJ key, authenticated Circle session or real transfer is required. Source and tests are both type checked. Run `npm run format` to apply the shared formatting. CI runs these checks on Node.js 22 and 24.
 
-Use fake adapters and isolated temporary data for tests. Never commit credentials, bank details, wallet sessions, or a local payout database. A proposed live integration needs documentation of the provider contract and how uncertain submissions are reconciled.
+## Code map
 
-Run `npm run check`, `npm run build`, and `npm test` before submitting a change. Document which behavior was tested and which external integrations remain unverified.
+| File                     | Responsibility                                                      |
+| ------------------------ | ------------------------------------------------------------------- |
+| `src/live-service.ts`    | Recipient selection, quotes, approval, limits and payout lifecycle. |
+| `src/providers/paj.ts`   | PAJ v2 authentication, recipient verification, orders and receipts. |
+| `src/adapters/circle.ts` | Circle CLI wallet checks, fee estimation and USDC transfers.        |
+| `src/store.ts`           | Private SQLite storage and atomic payout state updates.             |
+| `src/mcp.ts`             | Tool schemas, human elicitation and public results.                 |
+| `src/cli.ts`             | Stdio server, setup diagnostics and local human review.             |
+| `tests/fixtures/live.ts` | Controlled provider and wallet implementations for tests.           |
+
+## Payment changes
+
+- Keep amounts as integer base units internally and decimal strings at tool boundaries.
+- Bind approval to the resolved recipient, source wallet, existing order, amount and fee terms.
+- Preserve the SQLite claim and durable `submitting` record before calling Circle.
+- Reuse the payout ID as the transfer's idempotency key. Investigate uncertain submissions instead of resending them.
+- Keep order expiry, changed-address, amount, token, network and receipt-matching checks.
+- Present NGN and gas as estimates. Do not infer bank credit or merchant fulfilment from a chain receipt.
+- Keep credentials, bank details, wallet sessions and payout databases out of commits and public output.
+
+Include tests for behavior changed by a payment-related patch. Distinguish controlled tests from live evidence in the description. Live financial tests require explicit approval of the concrete payment.

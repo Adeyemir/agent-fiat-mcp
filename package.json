@@ -1,7 +1,7 @@
 {
   "name": "naira-offramp-mcp",
   "version": "0.1.0",
-  "description": "Cash out USDC on Arc to a Nigerian bank account through MCP.",
+  "description": "Let AI agents pay Nigerian bank accounts from Circle Agent Wallet USDC on Arc.",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -18,20 +18,21 @@
   },
   "files": [
     "dist",
+    ".env.example",
     "README.md",
     "CONTRIBUTING.md",
     "LICENSE",
     "docs"
   ],
   "scripts": {
-    "build": "tsc",
-    "check": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "build": "node scripts/build.mjs",
+    "check": "tsc --project tsconfig.test.json",
     "start": "node --env-file-if-exists=.env dist/cli.js",
     "dev": "node --env-file-if-exists=.env --import tsx src/cli.ts",
     "doctor": "node --env-file-if-exists=.env --import tsx src/cli.ts doctor",
     "provider:check": "node --env-file-if-exists=.env --import tsx src/cli.ts provider-check",
-    "provider:login": "node --env-file-if-exists=.env --import tsx src/cli.ts provider-login",
-    "demo": "node --import tsx scripts/demo.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "prepack": "npm run build"
   },
@@ -42,6 +43,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "prettier": "3.9.10",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   },

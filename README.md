@@ -1,131 +1,115 @@
 # Naira Offramp MCP
 
-An open-source MCP integration for **USDC on Arc → NGN in a Nigerian bank account**, using **Circle Agent Wallet** and PAJ.
+**Let AI agents pay Nigerian bank accounts from their USDC balance on Arc.**
 
-> **In development; first live payout confirmed end to end.** Circle confirmed the Arc USDC transfer, PAJ returned a matching completed payout receipt, and the recipient confirmed receiving the NGN in their bank account. Bank receipt was confirmed by the recipient; the MCP does not query bank balances.
+Agents can use this MCP server to pay a business, supplier or person in NGN using funds held in Circle Agent Wallet. It verifies the recipient, prepares a payment for review, obtains human approval and tracks the payout through PAJ.
 
-The normal route sends USDC from your Circle Agent Wallet on Arc to a fresh PAJ Arc order, then tracks the NGN payout. The development simulator is an explicit opt-in.
+Applications provide service discovery, bookings and merchant order confirmation around these payment tools. A successful bank payment alone does not establish that a merchant delivered the goods or issued a ticket.
 
-## Set up
+**Live route verified:** on October 20, 2026, Circle confirmed an Arc USDC transfer, PAJ returned a matching completed payout receipt, and the recipient confirmed receiving the NGN. See [verification evidence](docs/live-integration.md).
 
-Requires Node.js 22.13 or newer.
+## How it works
+
+```mermaid
+flowchart LR
+    Request[Amount and recipient] --> Quote[Verify account and prepare quote]
+    Quote --> Approval[Human approval]
+    Approval --> Wallet[Circle Agent Wallet on Arc]
+    Wallet --> PAJ[PAJ converts USDC to NGN]
+    PAJ --> Bank[Nigerian bank account]
+```
+
+Specify a recipient for each payment, or optionally save a default. The recipient can be someone else. Crypto funding addresses are handled internally.
+
+## Quick start
+
+Requires Node.js **22.13+**, Circle CLI **1.2.1+**, a funded Circle Agent Wallet on Arc, and a PAJ Business API key.
 
 ```sh
 git clone https://github.com/Adeyemir/naira-offramp-mcp.git
 cd naira-offramp-mcp
 npm ci
 npm run build
-cp .env.example .env
+cp -n .env.example .env
 chmod 600 .env
 ```
 
-Keep the default `OFFRAMP_MODE=live`. Connect your Circle Agent Wallet through the Circle CLI, save its Arc address in your private `CIRCLE_ARC_ADDRESS` configuration, and configure `PAJ_API_KEY` using [provider setup](docs/provider-setup.md). PAJ v2 uses that Business API key directly, without an email/OTP session. Requests use the saved wallet and either an explicitly specified recipient or an optional default bank. You do not enter a crypto destination address for cashouts.
+Set `PAJ_API_KEY` and `CIRCLE_ARC_ADDRESS` in your private `.env`, and authenticate through the Circle CLI. See [provider and wallet setup](docs/provider-setup.md).
 
-## Connect to Codex or Claude Code
+Check the setup without moving funds:
 
-Build first. Replace `/absolute/path` below with your checkout's absolute path. These commands load your private environment file and select real account tools. Neither requires an LLM API key in this project; your MCP client supplies the model.
+```sh
+npm run doctor
+npm run provider:check
+```
+
+## Connect your agent
+
+Replace `/absolute/path` with the checkout's absolute path. The MCP server uses your client's model; this project does not require an LLM API key.
 
 ### Codex
 
 ```sh
-codex mcp add naira-offramp --env OFFRAMP_MODE=live -- node --env-file-if-exists=/absolute/path/naira-offramp-mcp/.env /absolute/path/naira-offramp-mcp/dist/cli.js
+codex mcp add naira-offramp -- node --env-file="/absolute/path/naira-offramp-mcp/.env" "/absolute/path/naira-offramp-mcp/dist/cli.js"
 ```
 
 ### Claude Code
 
 ```sh
-claude mcp add --env OFFRAMP_MODE=live --transport stdio naira-offramp -- node --env-file-if-exists=/absolute/path/naira-offramp-mcp/.env /absolute/path/naira-offramp-mcp/dist/cli.js
+claude mcp add --transport stdio naira-offramp -- node --env-file="/absolute/path/naira-offramp-mcp/.env" "/absolute/path/naira-offramp-mcp/dist/cli.js"
 ```
 
-Restart or reconnect your client after registering. See the official [Codex MCP guide](https://developers.openai.com/codex/mcp) and [Claude Code MCP guide](https://code.claude.com/docs/en/mcp) for client configuration.
+Reconnect your client after registration. See the official [Codex MCP guide](https://developers.openai.com/codex/mcp) and [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
 
-Start by asking:
+Try these requests in your private client:
 
 > Show my USDC balance on Arc.
 
-> List the Nigerian banks available through PAJ.
+> Prepare a ₦5,000 payment to [bank], account [10-digit number], account holder [full name].
 
-> Prepare an estimated NGN 1,000 payout to this recipient: [bank name/code], [account number], [full account holder name].
+> Execute that prepared payment.
 
-Provide the bank name/code, account number and expected full holder name in your private client. PAJ resolves the account. A one-off recipient does not become your local default, and the recipient need not be you.
+> Check its payout status.
 
-Saving a default is optional:
-
-> Verify and save my default bank account.
-
-Review the resolved details in the human confirmation dialog before saving. You can then ask:
-
-> Prepare an estimated NGN 1,000 payout to my saved bank from my USDC on Arc.
-
-Review the expected NGN, USDC transfer, estimated gas, fee reserve and local approval window. The NGN amount and gas are estimates. Only then request execution and approve the human dialog.
-
-> Show the status of that payout.
-
-Saving a recipient and executing a payout require **MCP form elicitation** and a human approval dialog. Tool arguments cannot grant approval. Clients without forms can still prepare and inspect payouts; [local human review](docs/usage.md#local-human-review) is available.
-
-## Cashout flow
-
-```mermaid
-flowchart TD
-    Request[Your request in Codex or Claude] --> MCP[MCP tools]
-    MCP --> Bank[Saved bank or explicitly specified recipient]
-    Bank --> Quote[Preview indicative NGN and estimated USDC debit]
-    Quote --> Approval[You review indicative NGN and gas and approve]
-    Approval --> Settlement[Circle transfers Arc USDC to the PAJ order]
-    Settlement --> Provider[PAJ pays the Nigerian bank]
-    Provider --> Status[Poll the existing PAJ order]
-    Status --> Credit[Independently verify bank credit]
-```
-
-The direct Arc order route is documented in PAJ's [current chain matrix](https://docs.paj.cash/concepts/chains). Its permanent bank-account address is Solana-only and is not used for Arc payouts. [Integration status](docs/live-integration.md) distinguishes implemented behavior from live verification.
+Review the recipient, estimated NGN, USDC charge and gas before approving. Execution requires a human confirmation dialog using MCP form elicitation. Clients without that capability can use [local human review](docs/usage.md#local-human-review).
 
 ## Tools
 
-| Tool | Purpose |
-| --- | --- |
-| `get_balance` | Read actual USDC held in the configured Arc agent wallet. |
-| `list_banks` | Read PAJ's Nigerian bank directory. |
-| `get_default_bank` | Show the saved recipient with a masked account number. |
-| `set_default_bank` | Verify the bank account and full name with PAJ, then save locally after human approval. |
-| `prepare_payout` | Create a fresh PAJ Arc order and show indicative NGN and estimated gas. No transfer. |
-| `execute_payout` | Obtain human approval, re-check the order, then transfer Arc USDC once. |
-| `payout_status` | Poll the existing order; distinguish provider completion from verified bank credit. |
-| `payout_history` | Show recent local payouts with masked account numbers. |
-| `get_readiness` | Check PAJ v2 access, active Arc support, the wallet and optional Gateway balance. |
+| Tool               | Purpose                                                       |
+| ------------------ | ------------------------------------------------------------- |
+| `get_balance`      | Read the configured Arc wallet's USDC balance.                |
+| `list_banks`       | Look up supported Nigerian bank names and codes.              |
+| `prepare_payout`   | Verify a recipient and prepare an unfunded payment order.     |
+| `execute_payout`   | Obtain human approval, recheck the order and submit once.     |
+| `payout_status`    | Track the existing order and match its settlement receipt.    |
+| `payout_history`   | List recent local payouts with masked account numbers.        |
+| `get_default_bank` | Show the optional saved recipient.                            |
+| `set_default_bank` | Verify and save a default recipient after human approval.     |
+| `get_readiness`    | Check PAJ access, Arc availability and wallet authentication. |
 
-Amounts are decimal strings. NGN requests are approximate receive targets: PAJ applies the rate when the deposit is observed. A USDC request leaves a configured gas reserve in the wallet and uses the remainder as the provider payment. The reserve is not a provider fee. Estimates are checked before submission, but Circle's CLI exposes no hard network-fee cap, so the total debit is not guaranteed. The approval dialog states this explicitly.
+## Payment semantics
 
-Approval expires locally after at most five minutes; it does not lock PAJ's rate. Expired or changed order addresses cannot be funded. An uncertain transfer is persisted and never automatically resent. `provider_completed` means PAJ reports completion; `bankPaid` remains false because independent bank-credit evidence is not collected by this MCP.
+- **NGN requests** specify an indicative receive target. PAJ applies the rate when it observes the deposit.
+- **USDC requests** specify a spending budget. A configured reserve is retained for gas; the remainder funds the PAJ order.
+- **Gas is estimated.** Circle's CLI does not enforce a hard network-fee cap.
+- **Approval expires within five minutes.** Uncertain transfers are recorded and never automatically resent.
+- **Provider completion and bank receipt are separate evidence.** PAJ status is tracked automatically; the recipient can separately confirm bank credit.
 
-## Provider integration
-
-The PAJ client targets [the v2 API](https://docs.paj.cash/): `x-api-key` authentication, bank registration by code, rates, active chains, direct Arc offramp orders, and singular `/transaction/{id}` polling. It also implements raw onramp-order calls for Arc/Base, subject to the live active-chain flag; funding is not yet exposed as an MCP tool.
-
-Run a read-only check:
-
-```sh
-npm run provider:check
-```
-
-Or ask your connected agent: **“Check my off-ramp integration readiness.”** This checks current provider access, live Arc availability and your Circle wallet. Gateway balance is optional diagnostics and is not required for this route. Missing API credentials are reported without trying a legacy login.
-
-Keep API keys and Circle login codes in local setup. PAJ's v2 docs specify production; live payment preparation rejects testnet and unverified staging combinations. [Integration status](docs/live-integration.md) records the completed live test and how receipt was confirmed.
+For a fixed merchant invoice, the calling application must reconcile the final NGN amount and merchant confirmation before marking the purchase paid. See [usage and recovery](docs/usage.md).
 
 ## Development
 
 ```sh
+npm run format:check
 npm run check
-npm run build
 npm test
-npm run doctor
+npm run build
 ```
 
-Tests cover real account-tool wiring using controlled responses, missing-credential failures, recipient verification and approval, mode isolation, and the payout lifecycle's precision, fees, concurrency and persistence. They do not move real funds.
+Tests use controlled PAJ responses, fake Circle executables and temporary databases. They require no credentials and move no real money. The runtime contains one payment implementation: PAJ v2 with Circle Agent Wallet on Arc.
 
-`npm run demo` exercises the payout lifecycle with fabricated data in an isolated temporary profile. It does not read or debit a real wallet.
+[Contributing](CONTRIBUTING.md) · [Configuration and CLI](docs/usage.md) · [Verification](docs/live-integration.md)
 
-`npm start` runs the stdio MCP server; it waits for an MCP client. `npm run dev` runs the TypeScript entry point. Use [usage and configuration](docs/usage.md) for more detail.
+## License
 
-## Contributing and license
-
-MIT. [Contributions are welcome](CONTRIBUTING.md). Initial scope: **Arc USDC → NGN**. The provider and settlement interfaces allow future integrations without changing the MCP layer.
+[MIT](LICENSE).

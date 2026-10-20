@@ -7,79 +7,218 @@ import { publicError, requireThat } from "./errors.js";
 import { createMcpServer, payoutApprovalMessage } from "./mcp.js";
 import { createRuntime } from "./runtime.js";
 import { inspectReadiness } from "./readiness.js";
-import { providerLogin } from "./provider-login.js";
+import type { BankInput } from "./types.js";
+
+async function readBank(reader: ReturnType<typeof createInterface>): Promise<BankInput> {
+  return {
+    bank: (await reader.question("Nigerian bank name or code: ")).trim(),
+    accountNumber: (await reader.question("Ten-digit account number: ")).trim(),
+    expectedName: (await reader.question("Full account holder name: ")).trim(),
+  };
+}
 
 async function doctor() {
   const config = loadConfig();
   let circleVersion: unknown = "Not checked: no Arc agent wallet configured.";
   if (config.arcAddress) {
-    try { circleVersion = await new CircleAgent(config.circleBin, config.arcAddress, config.arcNetwork).checkVersion(); }
-    catch (error) { circleVersion = publicError(error); }
+    try {
+      circleVersion = await new CircleAgent(
+        config.circleBin,
+        config.arcAddress,
+        config.arcNetwork,
+      ).checkVersion();
+    } catch (error) {
+      circleVersion = publicError(error);
+    }
   }
-  console.log(JSON.stringify({
-    mode: config.mode, simulated: config.mode === "demo", node: process.version,
-    dataDir: config.dataDir, circleAgentWalletConfigured: Boolean(config.arcAddress), circleVersion,
-    providerEnvironment: config.pajEnvironment, arcNetwork: config.arcNetwork,
-    providerApiVersion: "v2", providerLoginRequired: false, providerApiKeyInEnvironment: Boolean(config.pajApiKey), payoutExecutionImplemented: true, livePayoutsVerified: false,
-    nextStep: config.mode === "demo" ? "Explicit simulation selected. Remove OFFRAMP_MODE=demo to use real tools." : "Run provider:check, choose a recipient and review a prepared payout's indicative NGN and network-fee terms before human approval. This command does not verify bank credit; live-test evidence is recorded in docs/live-integration.md.",
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        node: process.version,
+        dataDir: config.dataDir,
+        circleAgentWalletConfigured: Boolean(config.arcAddress),
+        circleVersion,
+        providerEnvironment: config.pajEnvironment,
+        arcNetwork: config.arcNetwork,
+        providerApiVersion: "v2",
+        providerApiKeyInEnvironment: Boolean(config.pajApiKey),
+        nextStep: "Run provider:check, connect your MCP client, then prepare a payout for review.",
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 async function main() {
   const [command, payoutId, ...extra] = process.argv.slice(2);
-  if (command === "doctor") return doctor();
+  if (command === "doctor") {
+    requireThat(payoutId === undefined, "INVALID_COMMAND", "doctor takes no arguments.");
+    return doctor();
+  }
   if (command === "provider-check") {
     requireThat(payoutId === undefined, "INVALID_COMMAND", "provider-check takes no arguments.");
     const readiness = await inspectReadiness(loadConfig());
     console.log(JSON.stringify(readiness, null, 2));
-    if (!readiness.provider.indicativeRate.ok || !readiness.provider.accountAccess.ok || !readiness.provider.arcOrdersAvailable) process.exitCode = 1;
+    if (!readiness.livePayoutsAvailable) process.exitCode = 1;
     return;
   }
-  if (command === "provider-login") {
-    requireThat(payoutId === undefined, "INVALID_COMMAND", "provider-login takes no arguments. Credentials belong in your private local environment.");
-    return providerLogin(loadConfig());
-  }
   if (command === "quote") {
-    requireThat(payoutId && extra.length === 1 && (extra[0] === "NGN" || extra[0] === "USDC"), "INVALID_COMMAND", "Use quote <amount> <NGN|USDC>. This prepares an order but does not send funds.");
+    requireThat(
+      payoutId &&
+        (extra.length === 1 || (extra.length === 2 && extra[1] === "--recipient")) &&
+        (extra[0] === "NGN" || extra[0] === "USDC"),
+      "INVALID_COMMAND",
+      "Use quote <amount> <NGN|USDC> [--recipient]. This prepares an unfunded order.",
+    );
+    const oneOff = extra[1] === "--recipient";
+    requireThat(
+      !oneOff || (process.stdin.isTTY && process.stdout.isTTY),
+      "INTERACTIVE_TERMINAL_REQUIRED",
+      "Use --recipient in an interactive terminal, or provide the recipient through MCP.",
+    );
     const runtime = createRuntime();
-    try { console.log(JSON.stringify(await runtime.service.prepare({ amount: payoutId, currency: extra[0] }), null, 2)); }
-    finally { runtime.close(); }
+    const reader = oneOff
+      ? createInterface({ input: process.stdin, output: process.stdout })
+      : undefined;
+    try {
+      const bank = reader ? await readBank(reader) : undefined;
+      console.log(
+        JSON.stringify(
+          await runtime.service.prepare({
+            amount: payoutId,
+            currency: extra[0],
+            ...(bank ? { bank } : {}),
+          }),
+          null,
+          2,
+        ),
+      );
+    } finally {
+      reader?.close();
+      runtime.close();
+    }
+    return;
+  }
+  if (command === "status" || command === "history") {
+    requireThat(
+      extra.length === 0 && (command === "status" ? Boolean(payoutId) : payoutId === undefined),
+      "INVALID_COMMAND",
+      "Use status <payout-id> or history.",
+    );
+    const runtime = createRuntime();
+    try {
+      console.log(
+        JSON.stringify(
+          command === "status"
+            ? await runtime.service.status(payoutId!)
+            : runtime.service.history(),
+          null,
+          2,
+        ),
+      );
+    } finally {
+      runtime.close();
+    }
     return;
   }
   if (command === "--help" || command === "help") {
-    console.log("naira-offramp-mcp [serve | doctor | provider-check | set-bank | quote <amount> <NGN|USDC> | approve <payout-id>]\nDefault: real Circle Agent Wallet + PAJ v2 Arc payouts with human approval. NGN and network fees are estimates. OFFRAMP_MODE=demo explicitly selects simulation.");
+    console.log(
+      [
+        "Naira Offramp MCP",
+        "Usage: naira-offramp-mcp [command]",
+        "",
+        "  serve                                      Run the stdio MCP server (default)",
+        "  doctor                                     Check local configuration",
+        "  provider-check                             Check PAJ and wallet access",
+        "  set-bank                                   Save an optional default recipient",
+        "  quote <amount> <NGN|USDC> [--recipient]      Prepare an unfunded order",
+        "  approve <payout-id>                         Review and approve a transfer",
+        "  status <payout-id>                          Track an existing payout",
+        "  history                                    List recent payouts",
+        "",
+        "Transfers require human approval. NGN and network fees are estimates.",
+      ].join("\n"),
+    );
     return;
   }
-  requireThat(!command || ["serve", "set-bank", "approve"].includes(command), "INVALID_COMMAND", "Use serve, doctor, set-bank or approve <payout-id>.");
-  requireThat(extra.length === 0 && (command === "approve" ? Boolean(payoutId) : payoutId === undefined), "INVALID_COMMAND", "Only approve takes an argument: the prepared payout ID.");
+  requireThat(
+    !command || ["serve", "set-bank", "approve"].includes(command),
+    "INVALID_COMMAND",
+    "Unknown command. Run --help for supported commands.",
+  );
+  requireThat(
+    extra.length === 0 && (command === "approve" ? Boolean(payoutId) : payoutId === undefined),
+    "INVALID_COMMAND",
+    "Use serve or set-bank without arguments, or approve <payout-id>.",
+  );
   if (command === "set-bank" || command === "approve") {
-    requireThat(process.stdin.isTTY && process.stdout.isTTY, "INTERACTIVE_TERMINAL_REQUIRED", "Human review requires an interactive terminal. Piped input is not accepted.");
+    requireThat(
+      process.stdin.isTTY && process.stdout.isTTY,
+      "INTERACTIVE_TERMINAL_REQUIRED",
+      "Human review requires an interactive terminal. Piped input is not accepted.",
+    );
     const runtime = createRuntime();
     const reader = createInterface({ input: process.stdin, output: process.stdout });
-    const confirm = async (message: string) => (await reader.question(`${message}\nType APPROVE to continue: `)) === "APPROVE";
+    const confirm = async (message: string) =>
+      (await reader.question(`${message}\nType APPROVE to continue: `)) === "APPROVE";
     try {
       if (command === "set-bank") {
-        const bank = await reader.question(runtime.config.mode === "demo" ? "Bank (demo: Demo Bank): " : "Nigerian bank name or code: ");
-        const accountNumber = await reader.question("Ten-digit account number: ");
-        const expectedName = await reader.question("Full account holder name: ");
-        console.log(JSON.stringify(await runtime.service.setDefaultBank({ bank, accountNumber, expectedName }, account => confirm(`Save ${account.name}, ${account.bank}, ${account.accountNumber}? ${account.simulated ? "DEMO: no real verification." : `Verified with PAJ ${runtime.config.pajEnvironment}; stored locally for Arc ${runtime.config.arcNetwork}.`}`)), null, 2));
+        console.log(
+          JSON.stringify(
+            await runtime.service.setDefaultBank(await readBank(reader), (account) =>
+              confirm(
+                `Save ${account.name}, ${account.bank}, ${account.accountNumber}? Verified with PAJ ${runtime.config.pajEnvironment}; stored locally for Arc ${runtime.config.arcNetwork}.`,
+              ),
+            ),
+            null,
+            2,
+          ),
+        );
       } else {
-        console.log(JSON.stringify(await runtime.service.execute(payoutId!, (payout, bank) => confirm(payoutApprovalMessage(payout, bank))), null, 2));
+        console.log(
+          JSON.stringify(
+            await runtime.service.execute(payoutId!, (payout, bank) =>
+              confirm(payoutApprovalMessage(payout, bank)),
+            ),
+            null,
+            2,
+          ),
+        );
       }
-    } finally { reader.close(); runtime.close(); }
+    } finally {
+      reader.close();
+      runtime.close();
+    }
     return;
   }
   const runtime = createRuntime();
-  const server = createMcpServer(runtime.service, { readiness: () => inspectReadiness(runtime.config) });
+  const server = createMcpServer(runtime.service, {
+    readiness: () => inspectReadiness(runtime.config),
+  });
   let closed = false;
-  const shutdown = () => { if (!closed) { closed = true; runtime.close(); } };
+  const shutdown = () => {
+    if (!closed) {
+      closed = true;
+      runtime.close();
+    }
+  };
   server.server.onclose = shutdown;
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.once(signal, () => { void server.close().finally(shutdown); });
+    process.once(signal, () => {
+      void server.close().finally(shutdown);
+    });
   }
-  try { await server.connect(new StdioServerTransport()); }
-  catch (error) { shutdown(); throw error; }
+  try {
+    await server.connect(new StdioServerTransport());
+  } catch (error) {
+    shutdown();
+    throw error;
+  }
   // Protocol messages own stdout. Diagnostics and failures use stderr only.
 }
 
-main().catch(error => { console.error(JSON.stringify(publicError(error))); process.exitCode = 1; });
+main().catch((error) => {
+  console.error(JSON.stringify(publicError(error)));
+  process.exitCode = 1;
+});

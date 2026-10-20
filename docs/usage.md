@@ -1,96 +1,81 @@
-# Usage and configuration
+# Configuration and usage
 
 ## Configuration
 
-`npm start` and `npm run dev` load `.env` from the current directory. A client launching Node directly should provide an absolute `--env-file-if-exists` argument or a private MCP environment.
+`npm start`, `npm run dev` and setup commands load `.env` from the current directory. An MCP client launching Node directly should pass the absolute `--env-file` path or provide a private environment.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `OFFRAMP_MODE` | `live` | Real Circle Agent Wallet and PAJ v2 operations. `demo` explicitly selects simulation. |
-| `OFFRAMP_DATA_DIR` | `~/.local/share/naira-offramp-mcp` | Private local profile; use a separate directory for each user. |
-| `OFFRAMP_MAX_USDC` | `100` | Prepared USDC budget limit, checked with estimated gas. The CLI does not guarantee a hard total-debit cap. |
-| `OFFRAMP_NETWORK_FEE_RESERVE_USDC` | `0.05` | Retained for estimated Arc gas when budgeting a payout; not an additional PAJ charge. |
-| `CIRCLE_BIN` | `circle` | Existing Circle CLI executable. |
-| `CIRCLE_ARC_ADDRESS` | unset | Saved Circle Agent Wallet address on Arc. Normal payout requests do not supply addresses. |
-| `ARC_NETWORK` | `mainnet` | Explicit Circle network. PAJ production payouts refuse `testnet`. |
-| `PAJ_ENVIRONMENT` | `production` | Only production v2 is currently documented and implemented. `staging` is refused by the provider client. |
-| `PAJ_API_KEY` | unset | Business API key, sent privately as `x-api-key` on every v2 request. |
+| Variable                           | Default                            | Purpose                                                |
+| ---------------------------------- | ---------------------------------- | ------------------------------------------------------ |
+| `PAJ_API_KEY`                      | unset                              | PAJ Business API key.                                  |
+| `CIRCLE_ARC_ADDRESS`               | unset                              | Configured Circle Agent Wallet source on Arc.          |
+| `CIRCLE_BIN`                       | `circle`                           | Circle CLI executable.                                 |
+| `OFFRAMP_DATA_DIR`                 | `~/.local/share/naira-offramp-mcp` | Private local profile.                                 |
+| `OFFRAMP_MAX_USDC`                 | `100`                              | Per-payout spending limit, checked with estimated gas. |
+| `OFFRAMP_NETWORK_FEE_RESERVE_USDC` | `0.05`                             | USDC retained for estimated gas.                       |
+| `PAJ_ENVIRONMENT`                  | `production`                       | Production is required for payment preparation.        |
+| `ARC_NETWORK`                      | `mainnet`                          | Mainnet is required for payment preparation.           |
 
-`PAJ_EMAIL`, `PAJ_SESSION_TOKEN` and saved legacy OTP sessions are ignored. `npm run provider:login` is retained as an explanatory compatibility command and does not authenticate or request a code. Authenticate Circle separately with its CLI; this server does not accept Circle's Terms or manage that login.
+## Prepare a payment
 
-## Real MCP tools
+Call `prepare_payout` with decimal-string `amount`, `currency` (`NGN` or `USDC`) and an optional recipient:
 
-The default server exposes `get_balance`, `list_banks`, `get_default_bank`, `set_default_bank`, `get_readiness`, `prepare_payout`, `execute_payout`, `payout_status` and `payout_history`.
+```json
+{
+  "amount": "5000",
+  "currency": "NGN",
+  "bank": {
+    "bank": "BANK_CODE_FROM_LIST_BANKS",
+    "accountNumber": "0123456789",
+    "expectedName": "FULL ACCOUNT HOLDER NAME"
+  }
+}
+```
 
-`get_balance` reads actual Arc USDC. `spendableUsdc: null` means the final spendable payout amount depends on an order and gas quote. Missing credentials and wallet failures produce errors without a simulated fallback.
+The `bank` object selects a one-off recipient. Omit it to use a previously saved default. PAJ verifies the bank account and full name before a fresh Arc order is created. Preparing an order sends no USDC.
 
-`set_default_bank` registers and verifies the account through PAJ v2 before human confirmation of local saving. Registration can persist at PAJ even if local saving is declined. Normal results mask the account number; the approval displays the full resolved name, bank and account. The provider's returned Solana standing address is never used for Arc payouts.
+An NGN amount is an indicative receive target. A USDC amount is a spending budget: the gas reserve stays in the wallet and the remainder funds the order. The reserve is not an extra PAJ fee. PAJ's business fee is already included in its rate.
 
-`prepare_payout` opens an unfunded Arc order. Its optional `bank` input selects a one-off recipient without changing the local default; the recipient need not be the wallet owner. Omitting it uses a previously saved default. An NGN amount is an indicative target. A USDC amount budgets the payment plus estimated gas by reserving the configured amount in the wallet. Provider charges, gas estimate, reserve, requested budget and local approval expiry are shown. Neither the final NGN amount nor the total network-fee-inclusive debit is guaranteed.
+Review the resolved recipient, provider payment, estimated NGN, estimated gas, budget and expiry. PAJ applies its rate when the deposit arrives. Circle's CLI does not enforce a hard gas cap, so the final NGN and total debit cannot be guaranteed by this quote.
 
-`execute_payout` requires human form elicitation, revalidates the order and budget estimate, claims the payout in SQLite, persists `submitting`, then calls Circle with the payout ID as idempotency key. The CLI has no hard gas-cap flag, which is disclosed in the approval. Repeated execution never sends a second transfer.
+## Approve and track
 
-`payout_status` polls the existing PAJ order. Provider `COMPLETED` is `provider_completed` and can report a different final NGN amount. It does not independently prove bank credit; `bankPaid` remains false. Provider `ERROR` is `failed`, with no automatic resend or refund.
+Call `execute_payout` with the prepared `payoutId`. The client must support MCP form elicitation and present the complete payment for human approval. A tool argument such as `confirmed: true` cannot approve a transfer.
 
-PAJ's settled receipt can replace the original funding address with the sender address and change `createdAt` to the deposit time. Such a receipt is accepted only when its transaction signature, sender, recipient, chain, token and amount match the confirmed Circle transfer and original order. The original funding instructions are preserved. `providerTransferMatched` records this correlation, without claiming independent bank credit.
+The service rechecks the existing order, source wallet, expiry, balance and estimated fees, claims the payout in SQLite, records `submitting`, then calls Circle with the payout ID as idempotency key.
 
-## Read-only checks
+Use `payout_status` to poll that order. PAJ `COMPLETED` becomes `provider_completed` with `finalProviderNgn`. `providerTransferMatched` means its receipt matches Circle's confirmed transfer hash, sender, destination, chain, token and amount. The original funding instructions are preserved even when PAJ's final receipt changes its `address` and `createdAt` fields.
 
-`npm run doctor` reports configuration presence and Circle version without printing credentials or submitting anything.
-
-`npm run provider:check` reads v2 rates, active chains and banks, then checks the configured Circle wallet and optional Arc Gateway deposit balance. Gateway is not part of the direct payout route. This command does not register banks, create orders or transfer funds. The same operation is available as `get_readiness`.
-
-`livePayoutsAvailable` reports that the configured checks passed. The runtime's `livePayoutsVerified: false` and `remainingVerification` flags are conservative: readiness checks neither run a payout nor ingest recipient confirmations. The [first live test](live-integration.md#verification-evidence) completed with a matching Circle/PAJ receipt and the recipient's confirmation of bank credit. That manual evidence is recorded separately from automated verification flags.
+`bankCreditIndependentlyVerified` remains false because the tool does not query bank credit. The recipient can separately confirm receipt. A merchant integration should reconcile the final NGN amount and merchant order before recording a purchase as paid.
 
 ## Local human review
 
-Clients without forms can prepare and inspect payouts. Complete bank setup and execution in an interactive terminal using the same profile:
+For clients without human forms, prepare a one-off recipient in an interactive terminal:
 
 ```sh
-npm start -- set-bank
-npm start -- quote 1000 NGN
+npm start -- quote 5000 NGN --recipient
 ```
 
-The quote command opens an order but sends no USDC. Read it first. Only when you intend to transfer, run:
+The command prompts for recipient details and opens an unfunded order. Alternatively, save an optional default with `npm start -- set-bank`, then omit `--recipient` when quoting.
+
+Only when you intend to transfer, review and approve the prepared order:
 
 ```sh
 npm start -- approve YOUR_PREPARED_PAYOUT_ID
 ```
 
-Review the complete recipient and fee/rate terms, then type `APPROVE`. Piped approval is refused. There is no model-controlled approval flag.
-
-## Live payout state
-
-```mermaid
-stateDiagram-v2
-    [*] --> prepared: fresh PAJ Arc order and gas estimate
-    prepared --> authorising: human approves and SQLite claim succeeds
-    authorising --> prepared: pre-submission validation fails
-    authorising --> submitting: persist before Circle transfer
-    submitting --> bank_pending: confirmed Circle transfer reference
-    submitting --> reconciliation_required: uncertain response or timeout
-    bank_pending --> provider_completed: PAJ reports COMPLETED
-    bank_pending --> failed: PAJ reports ERROR
-    reconciliation_required --> provider_completed: PAJ later reports COMPLETED
-    reconciliation_required --> failed: PAJ reports ERROR
-```
-
-A crash during `authorising` or `submitting` leaves that state for investigation. No automatic recovery resends money. Reconcile the persisted provider order and Circle references; do not delete the database or create a replacement payout to retry. An unfunded order address must not be reused after its approval window expires.
-
-## Local storage
-
-Live profiles use `offramp-live-<provider-environment>-<arc-network>.sqlite`; simulation uses `offramp.sqlite`. Recipient keys include provider environment and source network. Live payout records also bind the source wallet. No simulated balance is created in a live profile.
-
-Files are created with mode `0600` and new profile directories with mode `0700`. This is local protection, not encryption. The server serves one user/profile; it does not implement hosted multi-user authentication.
-
-## Development simulator
+Read the complete terms and type `APPROVE`. Piped approval is refused. Track the same payment with:
 
 ```sh
-npm run demo
-# Or serve explicitly simulated MCP tools:
-OFFRAMP_MODE=demo npm start
+npm start -- status YOUR_PREPARED_PAYOUT_ID
+npm start -- history
 ```
 
-Only the simulator accepts Demo Bank / 0000000000 / DEMO USER and creates a fabricated 100 USDC ledger. `npm run demo` uses an isolated temporary profile. No real wallet is debited. Simulated ledger debits otherwise survive restarts in their separate profile.
+`npm start` without a subcommand runs the stdio MCP server and waits for a client.
 
-The reusable `PayoutService` implements the simulated/generic lifecycle. Real PAJ v2 payout behavior lives in `LiveService`. Embedded applications must supply a trusted human approval callback; unconditional approval is suitable only for isolated simulation and tests.
+## Recovery and storage
+
+Approval expires within five minutes and does not lock the exchange rate. PAJ's funding addresses are pooled; an expired address must not be reused. An unfunded order releases its address after roughly two hours, and PAJ removes order records after 72 hours.
+
+`reconciliation_required` means a transfer may already have been submitted. Inspect its saved PAJ order and Circle transaction references. A crash during `authorising` or `submitting` also requires investigation. Repeating execution does not resend, and provider `ERROR` does not create a replacement or imply a refund. Preserve the local database when reconciling a payment.
+
+Profiles retain the `offramp-live-<provider-environment>-<arc-network>.sqlite` filename and existing payout records. Bank defaults are scoped by provider environment and network; payouts also bind the source wallet. New profile directories use mode `0700` and database files use `0600`. Storage is local and not encrypted. Use a separate private profile for each user.
