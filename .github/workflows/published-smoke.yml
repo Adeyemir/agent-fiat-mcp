@@ -6,7 +6,7 @@ on:
       version:
         description: Exact published npm version to test
         required: true
-        default: "0.2.2"
+        default: "0.2.3"
         type: string
       prepare_release:
         description: Also build an npm release archive on a remote runner

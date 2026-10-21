@@ -1,6 +1,6 @@
 {
   "name": "naira-offramp-mcp",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Let AI agents pay Nigerian bank accounts from Circle Agent Wallet USDC on Arc.",
   "type": "module",
   "license": "MIT",
