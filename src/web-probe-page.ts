@@ -69,14 +69,60 @@ export function landingPage(endpoint: string) {
   return page(
     "Web connection test",
     '<p class="label">Connection test</p><h1>Try Naira Offramp in your chat app</h1>' +
-      '<p class="muted">This preview checks whether your chat app can connect and show a human approval form.</p>' +
+      '<p class="muted">This preview checks your chat connection and lets you try a harmless approval in this browser.</p>' +
       "<h2>Add this connector address</h2><code>" +
       escapeHtml(endpoint) +
       "</code><p>In your chat app, add a custom MCP connector with this address. Choose OAuth if asked, then review the connection test permissions.</p>" +
-      '<div class="scope"><h2>Then ask your agent</h2><p>“Check the Naira Offramp connection, then run the harmless human approval test.”</p></div>' +
+      '<div class="scope"><h2>Then ask your agent</h2><p>“Check the Naira Offramp connection, then start a browser approval test and show me its link.”</p></div>' +
       "<h2>Payments are off</h2><p>This preview has no wallet connection. Your current wallet, recipients and payout history remain outside this test.</p>" +
       "<footer><small>Availability depends on your chat app and account. A successful connection test does not establish payment support.</small></footer>",
   );
+}
+
+export type BrowserApprovalStatus = "pending" | "approved" | "declined" | "cancelled" | "expired";
+
+export function browserApprovalPage(input: {
+  testId: string;
+  status: BrowserApprovalStatus;
+  expiresAt: string;
+  csrf: string;
+}) {
+  const titles: Record<BrowserApprovalStatus, string> = {
+    pending: "Try a browser approval",
+    approved: "Test approved",
+    declined: "Test declined",
+    cancelled: "Test cancelled",
+    expired: "Test expired",
+  };
+  const content =
+    '<p class="label">Connection test</p><h1>' +
+    titles[input.status] +
+    "</h1>" +
+    (input.status === "pending"
+      ? '<p class="muted">Choose whether to approve this harmless test. This choice cannot approve a payment.</p>'
+      : '<p class="muted">Return to your chat and ask the agent to check this test’s status.</p>') +
+    '<div class="scope"><small>Test reference</small><p class="app">' +
+    escapeHtml(input.testId) +
+    "</p><small>Only the browser session used to connect this test can respond.</small></div>" +
+    "<h2>No money will move</h2><p>No wallet is connected. No payment order exists in this test.</p>" +
+    (input.status === "pending"
+      ? "<small>Expires: " +
+        escapeHtml(new Date(input.expiresAt).toUTCString()) +
+        "</small>" +
+        '<form method="post" action="/browser-approval/' +
+        escapeHtml(input.testId) +
+        '">' +
+        '<input type="hidden" name="csrf" value="' +
+        escapeHtml(input.csrf) +
+        '">' +
+        '<div class="actions"><button name="decision" value="decline">Decline</button>' +
+        '<button name="decision" value="cancel">Cancel test</button>' +
+        '<button class="primary" name="decision" value="approve">Approve test</button></div></form>'
+      : input.status === "expired"
+        ? "<p>Ask the agent to start a new browser approval test.</p>"
+        : "<p>Your choice is saved for this test. It cannot be changed by refreshing the page.</p>") +
+    "<footer><small>This checks a browser interaction, not your identity or wallet ownership. Never enter credentials on this test page.</small></footer>";
+  return page(titles[input.status], content);
 }
 
 export function messagePage(title: string, message: string) {
@@ -90,21 +136,26 @@ export function messagePage(title: string, message: string) {
   );
 }
 
-export function pageHeaders(res: ServerResponse) {
+export function pageHeaders(res: ServerResponse, formRedirect?: URL) {
   res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Referrer-Policy", "no-referrer");
+  // `no-referrer` makes navigation-mode form POSTs send Origin: null, breaking
+  // the consent endpoint's exact-origin CSRF check (Fetch § Origin header).
+  // Keep the origin for our own form, without sending referrers to the client.
+  res.setHeader("Referrer-Policy", "same-origin");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader(
     "Content-Security-Policy",
     "default-src 'none'; style-src 'sha256-" +
       styleHash +
-      "'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'",
+      "'; frame-ancestors 'none'; form-action 'self'" +
+      (formRedirect ? " " + formRedirect.origin : "") +
+      "; base-uri 'none'",
   );
 }
 
-export function sendPage(res: ServerResponse, status: number, html: string) {
-  pageHeaders(res);
+export function sendPage(res: ServerResponse, status: number, html: string, formRedirect?: URL) {
+  pageHeaders(res, formRedirect);
   res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }

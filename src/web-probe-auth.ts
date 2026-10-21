@@ -19,11 +19,20 @@ import type {
   OAuthTokens,
   OAuthTokenRevocationRequest,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { consentPage, messagePage, sendPage } from "./web-probe-page.js";
+import { consentPage, messagePage, pageHeaders, sendPage } from "./web-probe-page.js";
 
 export const PROBE_SCOPE = "offramp:probe";
 export const PROBE_SCOPES = [PROBE_SCOPE, "offline_access"];
+export type ProbeConsentEvent = {
+  event: "probe_consent";
+  attempt: string;
+  stage: "created" | "approved" | "denied" | "rejected";
+  ageMs?: number;
+  reason?:
+    "expired" | "already_submitted" | "unknown_request" | "missing_cookie" | "changed_cookie";
+};
 const CONSENT_COOKIE = "offramp_probe_consent";
+const BROWSER_SESSION_MS = 60 * 60_000;
 const secret = () => randomBytes(32).toString("base64url");
 const digest = (value: string) => createHash("sha256").update(value).digest();
 
@@ -92,17 +101,29 @@ export class ProbeAuthorization implements OAuthServerProvider {
   private readonly codes: ExpiringStore<Grant>;
   private readonly access: ExpiringStore<Token>;
   private readonly refresh: ExpiringStore<Token>;
+  private readonly browserBindings: ExpiringStore<{
+    bindingDigest: Buffer;
+    expiresAtMs: number;
+  }>;
+  // Bounded diagnostic receipts contain only hashes and timestamps, never
+  // cookie bindings, OAuth parameters, authorization codes or tokens.
+  private readonly consentHistory = new Map<
+    string,
+    { createdAtMs: number; completed?: "approved" | "denied" }
+  >();
 
   constructor(
     readonly origin: URL,
     readonly resource: URL,
     private readonly now: () => number = Date.now,
+    private readonly onConsentEvent: (event: ProbeConsentEvent) => void = () => {},
   ) {
     this.clients = new ExpiringStore(128, now);
     this.consents = new ExpiringStore(128, now);
     this.codes = new ExpiringStore(128, now);
     this.access = new ExpiringStore(512, now);
     this.refresh = new ExpiringStore(512, now);
+    this.browserBindings = new ExpiringStore(128, now);
     this.clientsStore = {
       getClient: (id) => this.clients.get(id)?.client,
       registerClient: (input) => {
@@ -137,6 +158,29 @@ export class ProbeAuthorization implements OAuthServerProvider {
       throw new InvalidTargetError("This grant is only for the connection-test endpoint.");
   }
 
+  private consentEvent(
+    id: string,
+    stage: ProbeConsentEvent["stage"],
+    reason?: ProbeConsentEvent["reason"],
+  ) {
+    const attempt = digest(id).toString("hex").slice(0, 16);
+    const previous = this.consentHistory.get(attempt);
+    if (stage === "created") {
+      if (this.consentHistory.size >= 256)
+        this.consentHistory.delete(this.consentHistory.keys().next().value!);
+      this.consentHistory.set(attempt, { createdAtMs: this.now() });
+    } else if (previous && (stage === "approved" || stage === "denied")) {
+      previous.completed = stage;
+    }
+    this.onConsentEvent({
+      event: "probe_consent",
+      attempt,
+      stage,
+      ...(previous ? { ageMs: Math.max(0, this.now() - previous.createdAtMs) } : {}),
+      ...(reason ? { reason } : {}),
+    });
+  }
+
   async authorize(
     client: OAuthClientInformationFull,
     params: AuthorizationParams,
@@ -156,23 +200,52 @@ export class ProbeAuthorization implements OAuthServerProvider {
       cookieDigest: digest(binding),
       expiresAtMs: this.now() + 5 * 60_000,
     });
-    res.setHeader("Set-Cookie", this.cookie(binding, 300));
+    this.consentEvent(id, "created");
+    res.setHeader("Set-Cookie", this.cookie(id, binding, 300));
     sendPage(
       res,
       200,
       consentPage(id, client.client_name ?? "MCP client", new URL(params.redirectUri).origin),
+      // Chromium also applies form-action to the OAuth redirect after the POST.
+      // Allow only this request's already-validated registered callback origin.
+      new URL(params.redirectUri),
     );
   }
 
-  private cookie(value: string, maxAge: number) {
+  private cookie(id: string, value: string, maxAge: number) {
     return (
       CONSENT_COOKIE +
+      "_" +
+      id +
       "=" +
       value +
       "; Path=/consent; HttpOnly; SameSite=Lax; Max-Age=" +
       maxAge +
       (this.origin.protocol === "https:" ? "; Secure" : "")
     );
+  }
+
+  private browserCookieName(connectionId: string) {
+    return (
+      (this.origin.protocol === "https:" ? "__Host-" : "") + "offramp_probe_browser_" + connectionId
+    );
+  }
+
+  hasBrowserBinding(connectionId: string) {
+    return Boolean(this.browserBindings.get(connectionId));
+  }
+
+  // This proves possession of a test connection's browser cookie, not a
+  // person's identity, Circle authentication or wallet ownership.
+  verifyBrowserBinding(connectionId: string, req: IncomingMessage) {
+    const binding = this.browserBindings.get(connectionId);
+    const name = this.browserCookieName(connectionId) + "=";
+    const cookie = req.headers.cookie
+      ?.split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(name))
+      ?.slice(name.length);
+    return Boolean(binding && cookie && timingSafeEqual(digest(cookie), binding.bindingDigest));
   }
 
   async consent(req: IncomingMessage, res: ServerResponse) {
@@ -201,29 +274,59 @@ export class ProbeAuthorization implements OAuthServerProvider {
     }
     const form = new URLSearchParams(body);
     const id = form.get("request") ?? "";
-    const pending = this.consents.get(id);
-    const cookie = req.headers.cookie
-      ?.split(";")
-      .map((item) => item.trim())
-      .find((item) => item.startsWith(CONSENT_COOKIE + "="))
-      ?.slice(CONSENT_COOKIE.length + 1);
     if (
-      !pending ||
-      !cookie ||
-      !timingSafeEqual(digest(cookie), pending.cookieDigest) ||
+      !/^[A-Za-z0-9_-]{43}$/.test(id) ||
       form.getAll("request").length !== 1 ||
       form.getAll("decision").length !== 1 ||
       !["allow", "deny"].includes(form.get("decision") ?? "")
     ) {
       sendPage(
         res,
+        400,
+        messagePage("Invalid response", "Return to your chat and start a new connection."),
+      );
+      return;
+    }
+    const pending = this.consents.get(id);
+    const cookie = req.headers.cookie
+      ?.split(";")
+      .map((item) => item.trim())
+      .find((item) => item.startsWith(CONSENT_COOKIE + "_" + id + "="))
+      ?.slice(CONSENT_COOKIE.length + id.length + 2);
+    if (!pending) {
+      const previous = this.consentHistory.get(digest(id).toString("hex").slice(0, 16));
+      const reason = previous?.completed
+        ? "already_submitted"
+        : previous
+          ? "expired"
+          : "unknown_request";
+      this.consentEvent(id, "rejected", reason);
+      sendPage(
+        res,
         403,
-        messagePage("Connection expired", "Return to your chat and start a new connection."),
+        messagePage(
+          reason === "already_submitted" ? "Response already submitted" : "Connection expired",
+          reason === "already_submitted"
+            ? "This form was already submitted. Return to your chat and check whether the connection finished. If it did not, start a new connection."
+            : "This request timed out or the test server restarted. Return to your chat and start a new connection.",
+        ),
+      );
+      return;
+    }
+    if (!cookie || !timingSafeEqual(digest(cookie), pending.cookieDigest)) {
+      this.consentEvent(id, "rejected", cookie ? "changed_cookie" : "missing_cookie");
+      sendPage(
+        res,
+        403,
+        messagePage(
+          cookie ? "Browser session changed" : "Browser session missing",
+          "The browser cookie does not match this connection attempt. Start a new connection from your chat and complete it in the same browser. Allow cookies for this test site.",
+        ),
       );
       return;
     }
     this.consents.delete(id);
-    res.setHeader("Set-Cookie", this.cookie("", 0));
+    const cookies = [this.cookie(id, "", 0)];
     const redirect = new URL(pending.params.redirectUri);
     if (pending.params.state !== undefined)
       redirect.searchParams.set("state", pending.params.state);
@@ -231,18 +334,34 @@ export class ProbeAuthorization implements OAuthServerProvider {
       redirect.searchParams.set("error", "access_denied");
     } else {
       const code = secret();
+      const connectionId = randomUUID();
+      const browserSecret = secret();
+      this.browserBindings.set(connectionId, {
+        bindingDigest: digest(browserSecret),
+        expiresAtMs: this.now() + BROWSER_SESSION_MS,
+      });
       this.codes.set(code, {
         clientId: pending.client.client_id,
-        connectionId: randomUUID(),
+        connectionId,
         redirectUri: pending.params.redirectUri,
         challenge: pending.params.codeChallenge,
         scopes: pending.params.scopes!,
         expiresAtMs: this.now() + 60_000,
       });
+      cookies.push(
+        this.browserCookieName(connectionId) +
+          "=" +
+          browserSecret +
+          "; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600" +
+          (this.origin.protocol === "https:" ? "; Secure" : ""),
+      );
       redirect.searchParams.set("code", code);
     }
+    res.setHeader("Set-Cookie", cookies);
+    pageHeaders(res, redirect);
     res.writeHead(303, { Location: redirect.href });
     res.end();
+    this.consentEvent(id, form.get("decision") === "allow" ? "approved" : "denied");
   }
 
   private grant(client: OAuthClientInformationFull, code: string) {
@@ -324,6 +443,7 @@ export class ProbeAuthorization implements OAuthServerProvider {
     if (grant?.clientId !== client.client_id) return;
     this.access.deleteConnection(grant.connectionId);
     this.refresh.deleteConnection(grant.connectionId);
+    this.browserBindings.delete(grant.connectionId);
   }
 }
 

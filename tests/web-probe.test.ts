@@ -17,6 +17,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { createWebProbeServer, webProbeOrigin } from "../src/web-probe.js";
+import type { ProbeConsentEvent } from "../src/web-probe-auth.js";
 
 const origin = "http://127.0.0.1:8788";
 const resource = origin + "/mcp";
@@ -27,8 +28,14 @@ const result = (response: CallToolResult) =>
     error?: { code: string };
   };
 
-async function fixture(t: test.TestContext, now: () => number = Date.now) {
-  const probe = createWebProbeServer({ publicUrl: origin, now });
+async function fixture(t: test.TestContext, now: () => number = Date.now, publicUrl = origin) {
+  const resource = new URL("/mcp", publicUrl).href;
+  const consentEvents: ProbeConsentEvent[] = [];
+  const probe = createWebProbeServer({
+    publicUrl,
+    now,
+    onConsentEvent: (event) => consentEvents.push(event),
+  });
   const listening = once(probe.http, "listening");
   probe.http.listen(0, "127.0.0.1");
   await listening;
@@ -93,7 +100,7 @@ async function fixture(t: test.TestContext, now: () => number = Date.now) {
       redirect: "manual",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        Origin: origin,
+        Origin: publicUrl,
         Cookie: pending.cookie,
         ...headers,
       },
@@ -119,6 +126,11 @@ async function fixture(t: test.TestContext, now: () => number = Date.now) {
     assert.equal(redirect.searchParams.get("state"), "test-state");
     const code = redirect.searchParams.get("code")!;
     assert.ok(code);
+    const browserCookie = response.headers
+      .getSetCookie()
+      .find((value) => /^(?:__Host-)?offramp_probe_browser_/.test(value))
+      ?.split(";")[0];
+    assert.ok(browserCookie);
     const fields = {
       grant_type: "authorization_code",
       client_id: clientId,
@@ -135,7 +147,16 @@ async function fixture(t: test.TestContext, now: () => number = Date.now) {
       expires_in: number;
       scope: string;
     };
-    return { clientId, pending, fields, ...tokens };
+    return {
+      clientId,
+      pending,
+      fields,
+      browserCookie,
+      browserCookieHeader: response.headers
+        .getSetCookie()
+        .find((value) => value.startsWith(browserCookie)),
+      ...tokens,
+    };
   }
 
   async function connect(accessToken: string, answer?: ElicitResult) {
@@ -158,7 +179,18 @@ async function fixture(t: test.TestContext, now: () => number = Date.now) {
     await client.connect(transport as Transport);
     return { client, transport, prompts };
   }
-  return { ...probe, base, request, register, begin, consent, token, grant, connect };
+  return {
+    ...probe,
+    base,
+    request,
+    register,
+    begin,
+    consent,
+    token,
+    grant,
+    connect,
+    consentEvents,
+  };
 }
 
 test("web probe publishes OAuth discovery, requires bearer auth, and has no wallet access", async (t) => {
@@ -185,7 +217,9 @@ test("web probe publishes OAuth discovery, requires bearer auth, and has no wall
   const grant = await f.grant();
   const { client } = await f.connect(grant.access_token);
   assert.deepEqual((await client.listTools()).tools.map((item) => item.name).sort(), [
+    "get_browser_approval_test",
     "get_connection_readiness",
+    "start_browser_approval_test",
     "test_human_approval",
   ]);
   const readiness = result(
@@ -194,6 +228,8 @@ test("web probe publishes OAuth discovery, requires bearer auth, and has no wall
   assert.equal(readiness.walletConnected, false);
   assert.equal(readiness.paymentExecutionAvailable, false);
   assert.equal(readiness.formElicitationAdvertised, false);
+  assert.equal(readiness.urlElicitationAdvertised, false);
+  assert.equal(readiness.browserApprovalTestAvailable, true);
   assert.equal(readiness.approvalUiVerified, false);
   assert.deepEqual(readiness.client, { name: "web-probe-test-client", version: "1" });
   assert.equal(
@@ -225,23 +261,79 @@ test("browser consent escapes client text, requires its cookie and origin, and i
   assert.ok(pending.html.includes("&lt;script&gt;"));
   assert.ok(pending.html.includes("cannot access a wallet"));
   assert.ok(pending.response.headers.get("set-cookie")?.includes("HttpOnly"));
-  assert.equal(pending.response.headers.get("referrer-policy"), "no-referrer");
+  // Browser form POSTs under no-referrer would send Origin: null instead of
+  // this server's origin. Preserve same-origin form posts without allowing null.
+  assert.equal(pending.response.headers.get("referrer-policy"), "same-origin");
   assert.ok(
     pending.response.headers.get("content-security-policy")?.includes("frame-ancestors 'none'"),
+  );
+  // The policy must permit both the same-origin POST and the registered OAuth
+  // callback, which browsers can check again after the POST redirects.
+  const formActions = pending.response.headers
+    .get("content-security-policy")!
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("form-action "));
+  assert.equal(formActions, "form-action 'self' https://client.example");
+  assert.ok(
+    (await f.request("/")).headers.get("content-security-policy")?.includes("form-action 'self';"),
   );
   assert.equal(
     (await f.consent(pending, "allow", { Origin: "https://other.example" })).status,
     403,
   );
-  assert.equal((await f.consent(pending, "allow", { Cookie: "" })).status, 403);
+  assert.equal((await f.consent(pending, "allow", { Origin: "null" })).status, 403);
+  assert.equal((await f.consent(pending, "allow", { Origin: "" })).status, 403);
+  const unknown = await f.consent({ ...pending, id: "A".repeat(43) });
+  assert.equal(unknown.status, 403);
+  assert.equal(f.consentEvents.at(-1)?.reason, "unknown_request");
+  const missingCookie = await f.consent(pending, "allow", { Cookie: "" });
+  assert.equal(missingCookie.status, 403);
+  assert.ok((await missingCookie.text()).includes("Browser session missing"));
+  const changedCookie = await f.consent(pending, "allow", {
+    Cookie: pending.cookie!.split("=")[0] + "=wrong-binding",
+  });
+  assert.equal(changedCookie.status, 403);
+  assert.ok((await changedCookie.text()).includes("Browser session changed"));
   const denied = await f.consent(pending, "deny");
   assert.equal(denied.status, 303);
+  assert.ok(
+    denied.headers
+      .get("content-security-policy")
+      ?.includes("form-action 'self' https://client.example;"),
+  );
   const redirect = new URL(denied.headers.get("location")!);
   assert.equal(redirect.origin, new URL(callback).origin);
   assert.equal(redirect.searchParams.get("error"), "access_denied");
   assert.equal(redirect.searchParams.get("state"), "test-state");
   assert.equal(redirect.searchParams.has("code"), false);
   assert.equal((await f.consent(pending)).status, 403);
+});
+
+test("overlapping browser consent tabs keep separate cookies and clear only the submitted attempt", async (t) => {
+  const f = await fixture(t);
+  const { client_id } = await f.register();
+  const first = await f.begin(client_id);
+  const second = await f.begin(client_id);
+  assert.ok(first.cookie && second.cookie);
+  assert.notEqual(first.cookie.split("=")[0], second.cookie.split("=")[0]);
+  const browserCookies = first.cookie + "; " + second.cookie;
+  const approved = await f.consent(first, "allow", { Cookie: browserCookies });
+  assert.equal(approved.status, 303);
+  assert.equal(approved.headers.get("set-cookie")?.split("=")[0], first.cookie.split("=")[0]);
+  assert.ok(approved.headers.get("set-cookie")?.includes("Max-Age=0"));
+  // After the browser removes the first cookie, the second tab still works.
+  assert.equal((await f.consent(second)).status, 303);
+  const reused = await f.consent(first);
+  assert.equal(reused.status, 403);
+  assert.ok((await reused.text()).includes("Response already submitted"));
+  assert.equal(f.consentEvents.at(-1)?.reason, "already_submitted");
+  assert.equal(f.consentEvents.filter((event) => event.stage === "approved").length, 2);
+  const serializedEvents = JSON.stringify(f.consentEvents);
+  for (const privateValue of [first.id, second.id, first.cookie, second.cookie, first.verifier]) {
+    assert.ok(privateValue);
+    assert.equal(serializedEvents.includes(privateValue), false);
+  }
 });
 
 test("OAuth enforces PKCE, client, callback, resource, scope and one-time code bindings", async (t) => {
@@ -341,6 +433,7 @@ test("OAuth consent and access tokens expire, while a valid refresh can reconnec
   const pending = await f.begin(grant.clientId);
   now += 16 * 60_000;
   assert.equal((await f.consent(pending)).status, 403);
+  assert.equal(f.consentEvents.at(-1)?.reason, "expired");
   const denied = await f.request("/mcp", {
     headers: { Authorization: "Bearer " + grant.access_token },
   });
@@ -396,7 +489,7 @@ test("two OAuth grants for the same client cannot read or delete each other's MC
     });
     assert.equal(denied.status, 404);
   }
-  assert.equal((await a.client.listTools()).tools.length, 2);
+  assert.equal((await a.client.listTools()).tools.length, 4);
 });
 
 test("MCP session limits include parallel initializations and origin checks reject cross-site requests", async (t) => {
@@ -509,6 +602,332 @@ for (const [label, answer, accepted] of [
     },
   );
 }
+
+for (const [decision, status] of [
+  ["approve", "approved"],
+  ["decline", "declined"],
+  ["cancel", "cancelled"],
+] as const) {
+  test(
+    "browser test records " + decision + " without native forms or payment authority",
+    async (t) => {
+      const f = await fixture(t);
+      const grant = await f.grant();
+      const { client, prompts } = await f.connect(grant.access_token);
+      const started = result(
+        (await client.callTool({
+          name: "start_browser_approval_test",
+          arguments: {},
+        })) as CallToolResult,
+      ).result!;
+      assert.equal(started.status, "pending");
+      assert.equal(started.browserBoundResponseObserved, false);
+      const path = new URL(started.browserUrl as string).pathname;
+      const page = await f.request(path, { headers: { Cookie: grant.browserCookie } });
+      assert.equal(page.status, 200);
+      assert.equal(page.headers.get("referrer-policy"), "same-origin");
+      assert.ok(page.headers.get("content-security-policy")?.includes("form-action 'self';"));
+      const html = await page.text();
+      assert.ok(html.includes("No money will move"));
+      assert.equal(html.includes("<script"), false);
+      const csrf = /name="csrf" value="([^"]+)"/.exec(html)?.[1];
+      assert.ok(csrf);
+      assert.equal(JSON.stringify(started).includes(csrf), false);
+      assert.equal(JSON.stringify(started).includes(grant.browserCookie.split("=")[1]!), false);
+      const poll = async () =>
+        result(
+          (await client.callTool({
+            name: "get_browser_approval_test",
+            arguments: { testId: started.testId },
+          })) as CallToolResult,
+        ).result!;
+      // Link previews, GETs and query parameters cannot record approval.
+      await f.request(path + "?decision=approve", { headers: { Cookie: grant.browserCookie } });
+      assert.equal((await poll()).status, "pending");
+      const response = await f.request(path, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          Cookie: grant.browserCookie,
+          Origin: origin,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ csrf, decision }),
+      });
+      assert.equal(response.status, 303);
+      assert.equal(response.headers.get("location"), path);
+      const observed = await poll();
+      assert.equal(observed.status, status);
+      assert.equal(observed.testAccepted, decision === "approve");
+      assert.equal(observed.browserBoundResponseObserved, true);
+      assert.equal(observed.humanInteractionIndependentlyVerified, false);
+      assert.equal(observed.approvalUiVerified, false);
+      assert.equal(observed.walletConnected, false);
+      assert.equal(observed.paymentExecutionAvailable, false);
+      assert.equal(
+        (await f.request(path, { headers: { Cookie: grant.browserCookie } })).status,
+        200,
+      );
+      const replay = await f.request(path, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          Cookie: grant.browserCookie,
+          Origin: origin,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          csrf,
+          decision: decision === "approve" ? "decline" : "approve",
+        }),
+      });
+      assert.equal(replay.status, 409);
+      assert.equal((await poll()).status, status);
+      assert.deepEqual(prompts, []);
+    },
+  );
+}
+
+test("browser tests reject a bare link, another connection, CSRF, cross-site and agent confirmation arguments", async (t) => {
+  const f = await fixture(t);
+  const first = await f.grant();
+  const second = await f.grant(first.clientId);
+  const a = await f.connect(first.access_token);
+  const b = await f.connect(second.access_token);
+  const started = result(
+    (await a.client.callTool({
+      name: "start_browser_approval_test",
+      arguments: {},
+    })) as CallToolResult,
+  ).result!;
+  const path = new URL(started.browserUrl as string).pathname;
+  assert.equal((await f.request(path)).status, 403);
+  assert.equal(
+    (await f.request(path, { headers: { Authorization: "Bearer " + first.access_token } })).status,
+    403,
+  );
+  assert.equal((await f.request(path, { headers: { Cookie: second.browserCookie } })).status, 403);
+  const forgedCookie = first.browserCookie.split("=")[0] + "=" + second.browserCookie.split("=")[1];
+  assert.equal((await f.request(path, { headers: { Cookie: forgedCookie } })).status, 403);
+  const foreign = result(
+    (await b.client.callTool({
+      name: "get_browser_approval_test",
+      arguments: { testId: started.testId },
+    })) as CallToolResult,
+  );
+  assert.equal(foreign.error?.code, "BROWSER_TEST_NOT_FOUND");
+  const html = await (await f.request(path, { headers: { Cookie: first.browserCookie } })).text();
+  const csrf = /name="csrf" value="([^"]+)"/.exec(html)![1]!;
+  const submit = (cookie: string, fields: URLSearchParams, requestOrigin = origin) =>
+    f.request(path, {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        Cookie: cookie,
+        Origin: requestOrigin,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: fields,
+    });
+  assert.equal((await submit("", new URLSearchParams({ csrf, decision: "approve" }))).status, 403);
+  assert.equal(
+    (await submit(second.browserCookie, new URLSearchParams({ csrf, decision: "approve" }))).status,
+    403,
+  );
+  assert.equal(
+    (await submit(first.browserCookie, new URLSearchParams({ csrf: "wrong", decision: "approve" })))
+      .status,
+    403,
+  );
+  assert.equal(
+    (
+      await submit(
+        first.browserCookie,
+        new URLSearchParams({ csrf, decision: "approve" }),
+        "https://other.example",
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await submit(first.browserCookie, new URLSearchParams({ csrf, decision: "approve" }), "null"))
+      .status,
+    403,
+  );
+  assert.equal(
+    (
+      await submit(
+        first.browserCookie,
+        new URLSearchParams({ csrf, decision: "approve", confirmed: "true" }),
+      )
+    ).status,
+    403,
+  );
+  const duplicate = new URLSearchParams({ csrf, decision: "approve" });
+  duplicate.append("decision", "decline");
+  assert.equal((await submit(first.browserCookie, duplicate)).status, 403);
+  assert.equal(
+    (
+      await submit(
+        first.browserCookie,
+        new URLSearchParams({ csrf: "x".repeat(5000), decision: "approve" }),
+      )
+    ).status,
+    413,
+  );
+  for (const [name, arguments_] of [
+    ["start_browser_approval_test", { confirmed: true }],
+    ["get_browser_approval_test", { testId: started.testId, confirmed: true }],
+  ] as const)
+    assert.equal((await a.client.callTool({ name, arguments: arguments_ })).isError, true);
+  assert.equal(
+    result(
+      (await a.client.callTool({
+        name: "get_browser_approval_test",
+        arguments: { testId: started.testId },
+      })) as CallToolResult,
+    ).result!.status,
+    "pending",
+  );
+});
+
+test("concurrent browser responses save exactly one decision", async (t) => {
+  const f = await fixture(t);
+  const grant = await f.grant();
+  const { client } = await f.connect(grant.access_token);
+  const started = result(
+    (await client.callTool({
+      name: "start_browser_approval_test",
+      arguments: {},
+    })) as CallToolResult,
+  ).result!;
+  const path = new URL(started.browserUrl as string).pathname;
+  const html = await (await f.request(path, { headers: { Cookie: grant.browserCookie } })).text();
+  const csrf = /name="csrf" value="([^"]+)"/.exec(html)![1]!;
+  const responses = await Promise.all(
+    ["approve", "decline"].map((decision) =>
+      f.request(path, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          Cookie: grant.browserCookie,
+          Origin: origin,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ csrf, decision }),
+      }),
+    ),
+  );
+  assert.deepEqual(responses.map((response) => response.status).sort(), [303, 409]);
+  const saved = result(
+    (await client.callTool({
+      name: "get_browser_approval_test",
+      arguments: { testId: started.testId },
+    })) as CallToolResult,
+  ).result!;
+  assert.equal(saved.status, responses[0]!.status === 303 ? "approved" : "declined");
+});
+
+test("browser test expiry, browser session expiry, revocation and pending limits are enforced", async (t) => {
+  let now = Date.now();
+  const f = await fixture(t, () => now);
+  const grant = await f.grant();
+  const { client } = await f.connect(grant.access_token);
+  const starts = [];
+  for (let i = 0; i < 4; i++)
+    starts.push(
+      result(
+        (await client.callTool({
+          name: "start_browser_approval_test",
+          arguments: {},
+        })) as CallToolResult,
+      ).result!,
+    );
+  assert.equal(
+    result(
+      (await client.callTool({
+        name: "start_browser_approval_test",
+        arguments: {},
+      })) as CallToolResult,
+    ).error?.code,
+    "BROWSER_TEST_LIMIT",
+  );
+  const first = starts[0]!;
+  const path = new URL(first.browserUrl as string).pathname;
+  const html = await (await f.request(path, { headers: { Cookie: grant.browserCookie } })).text();
+  const csrf = /name="csrf" value="([^"]+)"/.exec(html)![1]!;
+  now += 5 * 60_000 + 1;
+  assert.equal(
+    result(
+      (await client.callTool({
+        name: "get_browser_approval_test",
+        arguments: { testId: first.testId },
+      })) as CallToolResult,
+    ).result!.status,
+    "expired",
+  );
+  assert.equal(
+    (
+      await f.request(path, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          Cookie: grant.browserCookie,
+          Origin: origin,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ csrf, decision: "approve" }),
+      })
+    ).status,
+    410,
+  );
+  await f.request("/revoke", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: grant.clientId, token: grant.access_token }),
+  });
+  assert.equal((await f.request(path, { headers: { Cookie: grant.browserCookie } })).status, 403);
+
+  const another = await f.grant(grant.clientId);
+  now += 59 * 60_000;
+  const refreshed = await f.token({
+    client_id: another.clientId,
+    grant_type: "refresh_token",
+    refresh_token: another.refresh_token,
+    resource,
+  });
+  assert.equal(refreshed.status, 200);
+  now += 2 * 60_000;
+  const tokens = await refreshed.json();
+  const reconnected = await f.connect(tokens.access_token);
+  assert.equal(
+    result(
+      (await reconnected.client.callTool({
+        name: "start_browser_approval_test",
+        arguments: {},
+      })) as CallToolResult,
+    ).error?.code,
+    "BROWSER_RECONNECT_REQUIRED",
+  );
+});
+
+test("HTTPS browser binding cookies are host-only, secure and never appear in MCP results", async (t) => {
+  const f = await fixture(t, Date.now, "https://probe.example");
+  const grant = await f.grant();
+  assert.ok(grant.browserCookieHeader?.startsWith("__Host-offramp_probe_browser_"));
+  for (const flag of ["Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=3600", "; Secure"])
+    assert.ok(grant.browserCookieHeader?.includes(flag));
+  assert.equal(grant.browserCookieHeader?.includes("Domain="), false);
+  const { client } = await f.connect(grant.access_token);
+  const started = result(
+    (await client.callTool({
+      name: "start_browser_approval_test",
+      arguments: {},
+    })) as CallToolResult,
+  ).result!;
+  assert.equal(new URL(started.browserUrl as string).origin, "https://probe.example");
+  assert.equal(JSON.stringify(started).includes(grant.browserCookie.split("=")[1]!), false);
+});
 
 test("web CLI rejects invalid deployment configuration without reading or creating a wallet profile", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "offramp-web-profile-"));
