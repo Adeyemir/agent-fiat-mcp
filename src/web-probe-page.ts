@@ -90,7 +90,7 @@ export function messagePage(title: string, message: string) {
   );
 }
 
-export function pageHeaders(res: ServerResponse) {
+export function pageHeaders(res: ServerResponse, formRedirect?: URL) {
   res.setHeader("Cache-Control", "no-store");
   // `no-referrer` makes navigation-mode form POSTs send Origin: null, breaking
   // the consent endpoint's exact-origin CSRF check (Fetch § Origin header).
@@ -102,12 +102,14 @@ export function pageHeaders(res: ServerResponse) {
     "Content-Security-Policy",
     "default-src 'none'; style-src 'sha256-" +
       styleHash +
-      "'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'",
+      "'; frame-ancestors 'none'; form-action 'self'" +
+      (formRedirect ? " " + formRedirect.origin : "") +
+      "; base-uri 'none'",
   );
 }
 
-export function sendPage(res: ServerResponse, status: number, html: string) {
-  pageHeaders(res);
+export function sendPage(res: ServerResponse, status: number, html: string, formRedirect?: URL) {
+  pageHeaders(res, formRedirect);
   res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }

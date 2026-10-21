@@ -17,6 +17,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { createWebProbeServer, webProbeOrigin } from "../src/web-probe.js";
+import type { ProbeConsentEvent } from "../src/web-probe-auth.js";
 
 const origin = "http://127.0.0.1:8788";
 const resource = origin + "/mcp";
@@ -28,7 +29,12 @@ const result = (response: CallToolResult) =>
   };
 
 async function fixture(t: test.TestContext, now: () => number = Date.now) {
-  const probe = createWebProbeServer({ publicUrl: origin, now });
+  const consentEvents: ProbeConsentEvent[] = [];
+  const probe = createWebProbeServer({
+    publicUrl: origin,
+    now,
+    onConsentEvent: (event) => consentEvents.push(event),
+  });
   const listening = once(probe.http, "listening");
   probe.http.listen(0, "127.0.0.1");
   await listening;
@@ -158,7 +164,18 @@ async function fixture(t: test.TestContext, now: () => number = Date.now) {
     await client.connect(transport as Transport);
     return { client, transport, prompts };
   }
-  return { ...probe, base, request, register, begin, consent, token, grant, connect };
+  return {
+    ...probe,
+    base,
+    request,
+    register,
+    begin,
+    consent,
+    token,
+    grant,
+    connect,
+    consentEvents,
+  };
 }
 
 test("web probe publishes OAuth discovery, requires bearer auth, and has no wallet access", async (t) => {
@@ -231,12 +248,26 @@ test("browser consent escapes client text, requires its cookie and origin, and i
   assert.ok(
     pending.response.headers.get("content-security-policy")?.includes("frame-ancestors 'none'"),
   );
+  // The policy must permit both the same-origin POST and the registered OAuth
+  // callback, which browsers can check again after the POST redirects.
+  const formActions = pending.response.headers
+    .get("content-security-policy")!
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("form-action "));
+  assert.equal(formActions, "form-action 'self' https://client.example");
+  assert.ok(
+    (await f.request("/")).headers.get("content-security-policy")?.includes("form-action 'self';"),
+  );
   assert.equal(
     (await f.consent(pending, "allow", { Origin: "https://other.example" })).status,
     403,
   );
   assert.equal((await f.consent(pending, "allow", { Origin: "null" })).status, 403);
   assert.equal((await f.consent(pending, "allow", { Origin: "" })).status, 403);
+  const unknown = await f.consent({ ...pending, id: "A".repeat(43) });
+  assert.equal(unknown.status, 403);
+  assert.equal(f.consentEvents.at(-1)?.reason, "unknown_request");
   const missingCookie = await f.consent(pending, "allow", { Cookie: "" });
   assert.equal(missingCookie.status, 403);
   assert.ok((await missingCookie.text()).includes("Browser session missing"));
@@ -247,6 +278,11 @@ test("browser consent escapes client text, requires its cookie and origin, and i
   assert.ok((await changedCookie.text()).includes("Browser session changed"));
   const denied = await f.consent(pending, "deny");
   assert.equal(denied.status, 303);
+  assert.ok(
+    denied.headers
+      .get("content-security-policy")
+      ?.includes("form-action 'self' https://client.example;"),
+  );
   const redirect = new URL(denied.headers.get("location")!);
   assert.equal(redirect.origin, new URL(callback).origin);
   assert.equal(redirect.searchParams.get("error"), "access_denied");
@@ -271,7 +307,14 @@ test("overlapping browser consent tabs keep separate cookies and clear only the 
   assert.equal((await f.consent(second)).status, 303);
   const reused = await f.consent(first);
   assert.equal(reused.status, 403);
-  assert.ok((await reused.text()).includes("Connection expired"));
+  assert.ok((await reused.text()).includes("Response already submitted"));
+  assert.equal(f.consentEvents.at(-1)?.reason, "already_submitted");
+  assert.equal(f.consentEvents.filter((event) => event.stage === "approved").length, 2);
+  const serializedEvents = JSON.stringify(f.consentEvents);
+  for (const privateValue of [first.id, second.id, first.cookie, second.cookie, first.verifier]) {
+    assert.ok(privateValue);
+    assert.equal(serializedEvents.includes(privateValue), false);
+  }
 });
 
 test("OAuth enforces PKCE, client, callback, resource, scope and one-time code bindings", async (t) => {
@@ -371,6 +414,7 @@ test("OAuth consent and access tokens expire, while a valid refresh can reconnec
   const pending = await f.begin(grant.clientId);
   now += 16 * 60_000;
   assert.equal((await f.consent(pending)).status, 403);
+  assert.equal(f.consentEvents.at(-1)?.reason, "expired");
   const denied = await f.request("/mcp", {
     headers: { Authorization: "Bearer " + grant.access_token },
   });

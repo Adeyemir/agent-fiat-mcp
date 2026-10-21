@@ -79,6 +79,11 @@ try {
   });
   assert.equal(consent.status, 200);
   assert.equal(consent.headers.get("referrer-policy"), "same-origin");
+  assert.ok(
+    consent.headers
+      .get("content-security-policy")
+      ?.includes("form-action 'self' https://client.example;"),
+  );
   const page = await consent.text();
   const request = /name="request" value="([^"]+)"/.exec(page)?.[1];
   const cookie = consent.headers.get("set-cookie")?.split(";")[0];
