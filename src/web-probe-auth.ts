@@ -156,7 +156,7 @@ export class ProbeAuthorization implements OAuthServerProvider {
       cookieDigest: digest(binding),
       expiresAtMs: this.now() + 5 * 60_000,
     });
-    res.setHeader("Set-Cookie", this.cookie(binding, 300));
+    res.setHeader("Set-Cookie", this.cookie(id, binding, 300));
     sendPage(
       res,
       200,
@@ -164,9 +164,11 @@ export class ProbeAuthorization implements OAuthServerProvider {
     );
   }
 
-  private cookie(value: string, maxAge: number) {
+  private cookie(id: string, value: string, maxAge: number) {
     return (
       CONSENT_COOKIE +
+      "_" +
+      id +
       "=" +
       value +
       "; Path=/consent; HttpOnly; SameSite=Lax; Max-Age=" +
@@ -201,29 +203,49 @@ export class ProbeAuthorization implements OAuthServerProvider {
     }
     const form = new URLSearchParams(body);
     const id = form.get("request") ?? "";
-    const pending = this.consents.get(id);
-    const cookie = req.headers.cookie
-      ?.split(";")
-      .map((item) => item.trim())
-      .find((item) => item.startsWith(CONSENT_COOKIE + "="))
-      ?.slice(CONSENT_COOKIE.length + 1);
     if (
-      !pending ||
-      !cookie ||
-      !timingSafeEqual(digest(cookie), pending.cookieDigest) ||
+      !/^[A-Za-z0-9_-]{43}$/.test(id) ||
       form.getAll("request").length !== 1 ||
       form.getAll("decision").length !== 1 ||
       !["allow", "deny"].includes(form.get("decision") ?? "")
     ) {
       sendPage(
         res,
+        400,
+        messagePage("Invalid response", "Return to your chat and start a new connection."),
+      );
+      return;
+    }
+    const pending = this.consents.get(id);
+    const cookie = req.headers.cookie
+      ?.split(";")
+      .map((item) => item.trim())
+      .find((item) => item.startsWith(CONSENT_COOKIE + "_" + id + "="))
+      ?.slice(CONSENT_COOKIE.length + id.length + 2);
+    if (!pending) {
+      sendPage(
+        res,
         403,
-        messagePage("Connection expired", "Return to your chat and start a new connection."),
+        messagePage(
+          "Connection expired",
+          "This request timed out, was already used, or the test server restarted. Return to your chat and start a new connection.",
+        ),
+      );
+      return;
+    }
+    if (!cookie || !timingSafeEqual(digest(cookie), pending.cookieDigest)) {
+      sendPage(
+        res,
+        403,
+        messagePage(
+          cookie ? "Browser session changed" : "Browser session missing",
+          "The browser cookie does not match this connection attempt. Start a new connection from your chat and complete it in the same browser. Allow cookies for this test site.",
+        ),
       );
       return;
     }
     this.consents.delete(id);
-    res.setHeader("Set-Cookie", this.cookie("", 0));
+    res.setHeader("Set-Cookie", this.cookie(id, "", 0));
     const redirect = new URL(pending.params.redirectUri);
     if (pending.params.state !== undefined)
       redirect.searchParams.set("state", pending.params.state);
