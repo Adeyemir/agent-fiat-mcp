@@ -18,9 +18,12 @@ https://github.com/Adeyemir/naira-offramp-mcp/blob/main/docs/prompts.md
 My Circle Agent Wallet is already logged in in this chat. Reuse its
 existing Circle CLI and session; do not reinstall, upgrade, log out,
 restart login or create a wallet. Detect my existing Arc agent wallet
-and preserve existing configuration. Register MCP if supported;
-otherwise use the documented CLI readiness checks. Report payment
-approval support separately. Do not create or fund a payment.
+and preserve existing configuration. Reuse a correct existing MCP
+registration; add it only if needed and supported. Otherwise use the
+documented CLI readiness checks. If MCP registration is saved but its
+tools are not active, report "configured; awaiting activation" instead
+of "setup complete". Report payment approval support separately.
+Do not create or fund a payment.
 ```
 
 Then use the [copyable prompts](docs/prompts.md) to check your balance, prepare a payment or track an existing payout. A prompt guide is included in the npm package; the repository has the current instructions. Browser-based agents can use command-enabled sandboxes when their permissions allow it. CLI access does not register native MCP tools, and payment execution needs a supported human approval flow. End-to-end payouts from ordinary web chats have not been verified.
@@ -67,7 +70,7 @@ npx --yes naira-offramp-mcp@0.2.2 provider-check
 
 ## Connect your agent
 
-Register the server once with a client that supports local stdio MCP servers. Installing the npm package alone does not register its tools with your agent. The server uses your client's model; this project does not require an LLM API key.
+Register the server once in each client that supports local stdio MCP servers. Reuse a correct existing entry and preserve other servers. Installing the npm package alone does not register its tools with your agent. The server uses your client's model; this project does not require an LLM API key.
 
 The client launches the package when it connects and makes its tools available to the agent. It uses the local user's Circle session and private configuration. A wallet address alone does not grant spending access. The hosted service handles PAJ requests using a server secret; users receive no PAJ credentials. Their wallets fund the PAJ order directly after human approval.
 
@@ -83,9 +86,34 @@ codex mcp add naira-offramp -- npx --yes naira-offramp-mcp@0.2.2
 claude mcp add --transport stdio naira-offramp -- npx --yes naira-offramp-mcp@0.2.2
 ```
 
+### Antigravity
+
+In Antigravity IDE, open the agent side panel's **… → MCP Servers → Manage MCP Servers → View raw config**. Its current global configuration is `~/.gemini/config/mcp_config.json`; workspace configuration can also live in `.agents/mcp_config.json`. Inspect the active configuration and reuse an existing entry before making changes. See [Antigravity's MCP documentation](https://antigravity.google/docs/mcp).
+
+If missing, merge this entry into the existing `mcpServers` object:
+
+```json
+{
+  "mcpServers": {
+    "naira-offramp": {
+      "command": "npx",
+      "args": ["--yes", "naira-offramp-mcp@0.2.2"]
+    }
+  }
+}
+```
+
+Refresh/reload the connection through the client's MCP manager if available; reconnect or restart Antigravity if activation still requires it. Reuse the existing Circle login. Choosing Opus or another model does not replace this client registration step.
+
+### Other compatible clients
+
 For another compatible client, set the command to `npx` and arguments to `["--yes", "naira-offramp-mcp@0.2.2"]`. Reconnect your client after registration. See the official [Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
 
 You can alternatively run `npm install --global naira-offramp-mcp@0.2.2` and register the `naira-offramp-mcp` command. Both methods run the same MCP server. Configuration and payout history stay outside the installed package, so upgrades preserve them. These examples pin a version; update it deliberately when adopting a new release.
+
+### Verify activation
+
+Writing configuration means **configured**, not yet **connected**. Verify that all nine tools below are available in the current client session, then call `get_readiness` through that MCP connection. While a saved registration has not loaded, report **MCP configured; awaiting activation** and any observed connection error. CLI diagnostics and a separate server test do not verify the client's active tools. Report wallet/provider blockers and payment approval support separately; a successful readiness response does not verify human approval support.
 
 Try these requests in your private client:
 
