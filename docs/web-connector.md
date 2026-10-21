@@ -122,21 +122,30 @@ observed rather than assumed.
 
 ## Evidence matrix
 
-| Client                            | Plan                    | Connection                        | Human form observed   | Real payout                                |
-| --------------------------------- | ----------------------- | --------------------------------- | --------------------- | ------------------------------------------ |
-| Codex, existing local integration | Existing tested account | Verified separately               | Existing payment flow | User reported receiving NGN from a $1 test |
-| Claude web                        | Free (user-reported)    | OAuth and tool discovery verified | Pending               | Not enabled                                |
-| Claude mobile                     | Free                    | Pending                           | Pending               | Not enabled                                |
-| ChatGPT web                       | Free                    | Pending                           | Pending               | Not enabled                                |
-| ChatGPT mobile                    | Free                    | Pending                           | Pending               | Not enabled                                |
+| Client                            | Plan                    | Connection                                   | Human form observed          | Real payout                                |
+| --------------------------------- | ----------------------- | -------------------------------------------- | ---------------------------- | ------------------------------------------ |
+| Codex, existing local integration | Existing tested account | Verified separately                          | Existing payment flow        | User reported receiving NGN from a $1 test |
+| Claude web                        | Free (user-reported)    | OAuth, discovery and tool execution verified | Not advertised; test blocked | Not enabled                                |
+| Claude mobile                     | Free                    | Pending                                      | Pending                      | Not enabled                                |
+| ChatGPT web                       | Free                    | Pending                                      | Pending                      | Not enabled                                |
+| ChatGPT mobile                    | Free                    | Pending                                      | Pending                      | Not enabled                                |
 
 On 2026-10-21, the user connected Claude web in Chrome. Their connector settings
 showed **Disconnect** and both compatibility tools, **Check web connection** and
 **Try a harmless approval**. Redacted server events confirmed consent acceptance
-and a successful token exchange. The Claude build/version was not recorded.
+and a successful token exchange.
 The displayed **Needs approval** setting controls tool invocation; it does not
 establish that an MCP elicitation form was displayed or that payment approval is
-supported. Tool execution and the human form remain to be observed.
+supported.
+
+The subsequent tool calls reported client **Anthropic/ClaudeAI 1.0.0** and
+`formElicitationAdvertised: false`. `get_connection_readiness` completed, and
+`test_human_approval` returned `HUMAN_APPROVAL_UNAVAILABLE` without sending an
+unsupported form request. The user reported that no form could be shown.
+`approvalUiVerified`, `walletConnected` and `paymentExecutionAvailable` were all
+false. This verifies remote tool execution on this tested connection, while
+native form approval is unavailable through this probe. It does not establish
+URL elicitation support, mobile behavior, or capabilities on other plans.
 
 For each real client test, record the date, client/version, account plan,
 connection result, advertised capabilities, the human's observation, and the
@@ -161,11 +170,22 @@ Before enabling web payments:
 4. Validate a real human approval mechanism for each supported client. If native
    forms are unavailable, design an authenticated browser approval flow bound to
    the existing order and complete terms. An agent-generated boolean is not approval.
+   Check URL elicitation separately: the observed absence of form support says
+   nothing about URL-mode support. If URL mode is also unavailable, evaluate an
+   explicit browser link and a separate status check. A link alone must not
+   authenticate the approving user or authorize a payout. Both patterns require
+   server-verified user identity and binding to the correct connection and order.
 5. Preserve the existing payout expiry, idempotency, durable submission and
    reconciliation protections. Run controlled integration tests first.
 
 A live payment test needs the user's explicit approval of its concrete recipient
 and terms. This milestone does not perform one.
+
+The [MCP elicitation specification](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation)
+requires advertised support for each requested mode and describes browser flows
+for sensitive interactions. The [SDK guidance](https://ts.sdk.modelcontextprotocol.io/capabilities#url-elicitation)
+also distinguishes form collection from URL or other out-of-band flows. Those
+patterns inform the next milestone; none is implemented or verified here.
 
 ## Consent-page reference lock
 
