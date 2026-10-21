@@ -122,13 +122,21 @@ observed rather than assumed.
 
 ## Evidence matrix
 
-| Client                            | Plan                    | Connection          | Human form observed   | Real payout                                |
-| --------------------------------- | ----------------------- | ------------------- | --------------------- | ------------------------------------------ |
-| Codex, existing local integration | Existing tested account | Verified separately | Existing payment flow | User reported receiving NGN from a $1 test |
-| Claude web                        | Free                    | Pending             | Pending               | Not enabled                                |
-| Claude mobile                     | Free                    | Pending             | Pending               | Not enabled                                |
-| ChatGPT web                       | Free                    | Pending             | Pending               | Not enabled                                |
-| ChatGPT mobile                    | Free                    | Pending             | Pending               | Not enabled                                |
+| Client                            | Plan                    | Connection                        | Human form observed   | Real payout                                |
+| --------------------------------- | ----------------------- | --------------------------------- | --------------------- | ------------------------------------------ |
+| Codex, existing local integration | Existing tested account | Verified separately               | Existing payment flow | User reported receiving NGN from a $1 test |
+| Claude web                        | Free (user-reported)    | OAuth and tool discovery verified | Pending               | Not enabled                                |
+| Claude mobile                     | Free                    | Pending                           | Pending               | Not enabled                                |
+| ChatGPT web                       | Free                    | Pending                           | Pending               | Not enabled                                |
+| ChatGPT mobile                    | Free                    | Pending                           | Pending               | Not enabled                                |
+
+On 2026-10-21, the user connected Claude web in Chrome. Their connector settings
+showed **Disconnect** and both compatibility tools, **Check web connection** and
+**Try a harmless approval**. Redacted server events confirmed consent acceptance
+and a successful token exchange. The Claude build/version was not recorded.
+The displayed **Needs approval** setting controls tool invocation; it does not
+establish that an MCP elicitation form was displayed or that payment approval is
+supported. Tool execution and the human form remain to be observed.
 
 For each real client test, record the date, client/version, account plan,
 connection result, advertised capabilities, the human's observation, and the
