@@ -99,6 +99,18 @@ Try these requests in your private client:
 
 Review the recipient, estimated NGN, USDC charge and gas before approving. Execution requires a human confirmation dialog using MCP form elicitation. Clients without that capability can use [local human review](docs/usage.md#local-human-review).
 
+## Web and mobile connector preview
+
+Development work on the web/mobile connector is separate from the published `0.2.2`
+wallet integration. The source checkout includes an isolated OAuth/HTTP
+compatibility test with two tools. It cannot connect a wallet, register a bank,
+prepare an order or send funds.
+
+See [web connector development](docs/web-connector.md) to run the test and record
+observed client support. ChatGPT and Claude web/mobile payment support remains
+unverified. Installing the npm package in a chat sandbox does not establish
+network access, MCP registration or human approval support.
+
 ## Tools
 
 | Tool               | Purpose                                                       |

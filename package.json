@@ -48,6 +48,8 @@
     "check": "tsc --project tsconfig.test.json",
     "start": "node --env-file-if-exists=.env dist/cli.js",
     "dev": "node --env-file-if-exists=.env --import tsx src/cli.ts",
+    "web:probe": "node --import tsx src/cli.ts web-probe",
+    "test:web": "node --import tsx --test tests/web-probe.test.ts",
     "doctor": "node --env-file-if-exists=.env --import tsx src/cli.ts doctor",
     "provider:check": "node --env-file-if-exists=.env --import tsx src/cli.ts provider-check",
     "test": "node --import tsx --test tests/*.test.ts",
@@ -65,6 +67,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261019.1",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.0.0",
     "jsonc-parser": "^3.3.1",
     "miniflare": "^5.20261019.1-beta",
