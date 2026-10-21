@@ -92,7 +92,10 @@ export function messagePage(title: string, message: string) {
 
 export function pageHeaders(res: ServerResponse) {
   res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Referrer-Policy", "no-referrer");
+  // `no-referrer` makes navigation-mode form POSTs send Origin: null, breaking
+  // the consent endpoint's exact-origin CSRF check (Fetch § Origin header).
+  // Keep the origin for our own form, without sending referrers to the client.
+  res.setHeader("Referrer-Policy", "same-origin");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader(

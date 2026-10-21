@@ -225,7 +225,9 @@ test("browser consent escapes client text, requires its cookie and origin, and i
   assert.ok(pending.html.includes("&lt;script&gt;"));
   assert.ok(pending.html.includes("cannot access a wallet"));
   assert.ok(pending.response.headers.get("set-cookie")?.includes("HttpOnly"));
-  assert.equal(pending.response.headers.get("referrer-policy"), "no-referrer");
+  // Browser form POSTs under no-referrer would send Origin: null instead of
+  // this server's origin. Preserve same-origin form posts without allowing null.
+  assert.equal(pending.response.headers.get("referrer-policy"), "same-origin");
   assert.ok(
     pending.response.headers.get("content-security-policy")?.includes("frame-ancestors 'none'"),
   );
@@ -233,6 +235,8 @@ test("browser consent escapes client text, requires its cookie and origin, and i
     (await f.consent(pending, "allow", { Origin: "https://other.example" })).status,
     403,
   );
+  assert.equal((await f.consent(pending, "allow", { Origin: "null" })).status, 403);
+  assert.equal((await f.consent(pending, "allow", { Origin: "" })).status, 403);
   assert.equal((await f.consent(pending, "allow", { Cookie: "" })).status, 403);
   const denied = await f.consent(pending, "deny");
   assert.equal(denied.status, 303);
