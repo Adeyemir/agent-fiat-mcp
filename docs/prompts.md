@@ -27,8 +27,8 @@ My Circle Agent Wallet is already set up and logged in in this chat.
 Add Naira Offramp so I can pay Nigerian bank accounts from its USDC
 balance on Arc. Reuse the existing Circle executable and session.
 
-Follow https://github.com/Adeyemir/naira-offramp-mcp and its wallet setup
-guide. Use the npm package naira-offramp-mcp@0.2.2 through npx.
+Follow https://github.com/Adeyemir/naira-offramp-mcp/tree/v0.2.3 and its
+wallet setup guide. Use the npm package naira-offramp-mcp@0.2.3 through npx.
 
 1. Check the existing Circle executable, version and wallet session
    using read-only commands. Preserve its existing network/proxy
@@ -37,7 +37,7 @@ guide. Use the npm package naira-offramp-mcp@0.2.2 through npx.
    missing, report it and stop. Also check Node.js 22.13+, private file
    storage and network access to the hosted payout API.
 2. Initialize the private profile with
-   npx --yes naira-offramp-mcp@0.2.2 init.
+   npx --yes naira-offramp-mcp@0.2.3 init.
    Preserve existing configuration, connection identity and payout history.
 3. Read my existing agent wallets with
    circle wallet list --chain ARC --type agent --output json.
@@ -50,7 +50,7 @@ guide. Use the npm package naira-offramp-mcp@0.2.2 through npx.
    Inspect existing registrations first. Reuse a correct naira-offramp
    entry without rewriting it or adding a duplicate, including one
    using an absolute executable path. Otherwise merge only the needed
-   entry: command npx, arguments ["--yes", "naira-offramp-mcp@0.2.2"].
+   entry: command npx, arguments ["--yes", "naira-offramp-mcp@0.2.3"].
    Preserve unrelated MCP servers and existing environment settings.
    Use the client's supported MCP refresh/reload when available. If
    activation requires me to restart or reconnect, report "MCP
@@ -63,8 +63,8 @@ guide. Use the npm package naira-offramp-mcp@0.2.2 through npx.
    client's tools are active. Do not call setup complete or report
    "Blockers: None" while activation or readiness checks are pending.
 5. If MCP registration is unavailable but command execution works, run
-   npx --yes naira-offramp-mcp@0.2.2 doctor
-   npx --yes naira-offramp-mcp@0.2.2 provider-check
+   npx --yes naira-offramp-mcp@0.2.3 doctor
+   npx --yes naira-offramp-mcp@0.2.3 provider-check
    Explain the observed results and say that CLI access was checked;
    do not claim the web chat has registered MCP tools.
 6. Report setup checks and payment-execution support separately.

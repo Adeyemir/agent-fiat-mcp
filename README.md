@@ -1,19 +1,29 @@
 # Naira Offramp MCP
 
-**Let AI agents pay Nigerian bank accounts from their USDC balance on Arc.**
+**Pay Nigerian bank accounts from your Circle Agent Wallet through your AI agent.**
 
-Agents can use this MCP server to pay a business, supplier or person in NGN using funds held in Circle Agent Wallet. It verifies the recipient, prepares a payment for review, obtains human approval and tracks the payout through PAJ.
+Give your agent an amount and Nigerian bank details. Naira Offramp verifies the recipient, prepares a quote, asks for human approval and uses USDC on Arc to fund the NGN payout through PAJ. The recipient can be a business, supplier or person; you do not need to own their bank account.
 
-**Users do not need a PAJ account or API key.** The hosted backend manages PAJ access. Wallet authentication and USDC transfers use Circle CLI in the user's agent execution environment. Payments require human approval through a supported MCP client or the interactive CLI.
+**No PAJ account, PAJ API key or LLM API key is required by this package.** Use your AI client's existing model and your own authenticated Circle Agent Wallet. Keep private keys and provider credentials out of chat.
+
+## Choose your setup
+
+| Your environment                                                    | What this release supports                                                                                           |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| A local stdio MCP client, such as Codex, Claude Code or Antigravity | Register the server, load its nine tools and check readiness. Payments also need a supported human approval flow.    |
+| An agent that can run commands but cannot register MCP tools        | Run CLI readiness checks. A person can review payments through the interactive CLI.                                  |
+| Ordinary ChatGPT or Claude web/mobile chat                          | End-to-end wallet payments have not been verified. A prompt or npm installation alone does not connect native tools. |
+
+The client controls tool loading and approval capabilities. Choosing Opus or another model does not replace MCP registration. The separate [web/mobile connector preview](https://github.com/Adeyemir/naira-offramp-mcp/blob/main/docs/web-connector.md) is a connection and approval test; it does not connect a wallet or execute payments.
 
 ## Set up through your agent
 
-Copy this into an agent with command execution, private file storage and network access, on your computer or in a cloud sandbox:
+First authenticate your Circle Agent Wallet in the environment where the agent runs. An existing session on your computer is not automatically available in a cloud chat sandbox. Then copy this into an agent with command execution, private file storage and network access:
 
 ```text
-Set up naira-offramp-mcp@0.2.2 for this AI client. Follow the
+Set up naira-offramp-mcp@0.2.3 for this AI client. Follow the
 "Connect your agent" prompt at:
-https://github.com/Adeyemir/naira-offramp-mcp/blob/main/docs/prompts.md
+https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/docs/prompts.md
 
 My Circle Agent Wallet is already logged in in this chat. Reuse its
 existing Circle CLI and session; do not reinstall, upgrade, log out,
@@ -26,64 +36,54 @@ of "setup complete". Report payment approval support separately.
 Do not create or fund a payment.
 ```
 
-Then use the [copyable prompts](docs/prompts.md) to check your balance, prepare a payment or track an existing payout. A prompt guide is included in the npm package; the repository has the current instructions. Browser-based agents can use command-enabled sandboxes when their permissions allow it. CLI access does not register native MCP tools, and payment execution needs a supported human approval flow. End-to-end payouts from ordinary web chats have not been verified.
-
-## Project scope
-
-Applications provide service discovery, bookings and merchant order confirmation around these payment tools. A successful bank payment alone does not establish that a merchant delivered the goods or issued a ticket.
-
-**Live route verified:** on October 20, 2026, Circle confirmed an Arc USDC transfer, PAJ returned a matching completed payout receipt, and the recipient confirmed receiving the NGN. See [verification evidence](docs/live-integration.md).
+Setup does not create a recipient, payment order or transfer. After the tools are connected, use the [payment prompts](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/docs/prompts.md) to check your balance, prepare a payment or track a payout. A copy of the prompt guide is included in the package.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    Request[Amount and recipient] --> Quote[Hosted API verifies account and prepares quote]
-    Quote --> Approval[Local human approval]
-    Approval --> Wallet[Circle Agent Wallet on Arc]
-    Wallet --> PAJ[PAJ converts USDC to NGN]
-    PAJ --> Bank[Nigerian bank account]
-```
+1. **Request:** give the agent an amount, bank name, account number and account holder name.
+2. **Review:** check the verified recipient, estimated NGN received, USDC charge, gas estimate and expiry.
+3. **Approve:** confirm through the client's supported MCP approval form or the human-operated interactive CLI.
+4. **Track:** Circle funds the PAJ order from your wallet; the agent checks PAJ's payout status and receipt.
 
 Specify a recipient for each payment, or optionally save a default. The recipient can be someone else. Crypto funding addresses are handled internally.
 
 ## Quick start
 
-Requires Node.js **22.13+**, Circle CLI **1.2.1+**, and a funded Circle Agent Wallet on Arc. If Circle is already installed and authenticated in this chat's execution environment, reuse it. This package does not install Circle CLI or start a wallet login.
+Requires Node.js **22.13+**, Circle CLI **1.2.1+**, private file storage, and network access to Circle and the hosted payout API. Reuse Circle CLI and the wallet session already authenticated in this environment. The wallet needs USDC on Arc for a payment; funding is not part of setup. This package does not install Circle CLI, start login or create a wallet.
 
-For a development checkout, see the [source installation](CONTRIBUTING.md#source-installation).
+For a development checkout, see the [source installation](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/CONTRIBUTING.md#source-installation).
 
 Create your private configuration once:
 
 ```sh
-npx --yes naira-offramp-mcp@0.2.2 init
+npx --yes naira-offramp-mcp@0.2.3 init
 ```
 
-Edit the returned `provider.env` file, normally at `~/.local/share/naira-offramp-mcp/provider.env`. Set `CIRCLE_ARC_ADDRESS` to your existing Arc agent wallet and authenticate through the Circle CLI. The client connects to the hosted API automatically and creates its own private connection credentials. Existing configuration files are preserved. See [wallet setup](docs/provider-setup.md).
+Use the returned `provider.env` file, normally at `~/.local/share/naira-offramp-mcp/provider.env`. Preserve an existing wallet configuration; otherwise set `CIRCLE_ARC_ADDRESS` to your authenticated Arc agent wallet. `init` preserves existing configuration. The client connects to the hosted API automatically and creates its own private connection credentials. See [wallet setup](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/docs/provider-setup.md).
 
 Check the setup without moving funds:
 
 ```sh
-npx --yes naira-offramp-mcp@0.2.2 doctor
-npx --yes naira-offramp-mcp@0.2.2 provider-check
+npx --yes naira-offramp-mcp@0.2.3 doctor
+npx --yes naira-offramp-mcp@0.2.3 provider-check
 ```
 
 ## Connect your agent
 
 Register the server once in each client that supports local stdio MCP servers. Reuse a correct existing entry and preserve other servers. Installing the npm package alone does not register its tools with your agent. The server uses your client's model; this project does not require an LLM API key.
 
-The client launches the package when it connects and makes its tools available to the agent. It uses the local user's Circle session and private configuration. A wallet address alone does not grant spending access. The hosted service handles PAJ requests using a server secret; users receive no PAJ credentials. Their wallets fund the PAJ order directly after human approval.
+The client launches the package when it connects and makes its tools available to the agent. This registration tells the app how to start the server; it does not create another wallet. Clients on the same computer can reuse the same Circle session and private profile. Preserve other MCP servers and existing environment settings when adding an entry.
 
 ### Codex
 
 ```sh
-codex mcp add naira-offramp -- npx --yes naira-offramp-mcp@0.2.2
+codex mcp add naira-offramp -- npx --yes naira-offramp-mcp@0.2.3
 ```
 
 ### Claude Code
 
 ```sh
-claude mcp add --transport stdio naira-offramp -- npx --yes naira-offramp-mcp@0.2.2
+claude mcp add --transport stdio naira-offramp -- npx --yes naira-offramp-mcp@0.2.3
 ```
 
 ### Antigravity
@@ -97,7 +97,7 @@ If missing, merge this entry into the existing `mcpServers` object:
   "mcpServers": {
     "naira-offramp": {
       "command": "npx",
-      "args": ["--yes", "naira-offramp-mcp@0.2.2"]
+      "args": ["--yes", "naira-offramp-mcp@0.2.3"]
     }
   }
 }
@@ -107,15 +107,21 @@ Refresh/reload the connection through the client's MCP manager if available; rec
 
 ### Other compatible clients
 
-For another compatible client, set the command to `npx` and arguments to `["--yes", "naira-offramp-mcp@0.2.2"]`. Reconnect your client after registration. See the official [Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
+For another compatible client, set the command to `npx` and arguments to `["--yes", "naira-offramp-mcp@0.2.3"]`. Reconnect your client after registration. See the official [Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
 
-You can alternatively run `npm install --global naira-offramp-mcp@0.2.2` and register the `naira-offramp-mcp` command. Both methods run the same MCP server. Configuration and payout history stay outside the installed package, so upgrades preserve them. These examples pin a version; update it deliberately when adopting a new release.
+You can alternatively run `npm install --global naira-offramp-mcp@0.2.3` and register the `naira-offramp-mcp` command. Both methods run the same MCP server. Configuration and payout history stay outside the installed package, so upgrades preserve them. These examples pin a version; update it deliberately when adopting a new release.
 
 ### Verify activation
 
 Writing configuration means **configured**, not yet **connected**. Verify that all nine tools below are available in the current client session, then call `get_readiness` through that MCP connection. While a saved registration has not loaded, report **MCP configured; awaiting activation** and any observed connection error. CLI diagnostics and a separate server test do not verify the client's active tools. Report wallet/provider blockers and payment approval support separately; a successful readiness response does not verify human approval support.
 
-Try these requests in your private client:
+For a client without MCP registration, report **CLI readiness checked; MCP tools unavailable**. If a check fails or has not run, report that specific result instead of claiming setup is complete.
+
+### Payment approval is a separate check
+
+MCP execution requires form elicitation for the package's human approval flow. A client's generic "allow tool" permission does not establish that support. If native approval is unavailable, a person can use [interactive CLI review](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/docs/usage.md#local-human-review). An agent must never submit its own confirmation or bypass approval. If approval support has not been checked, report it as **unverified**; do not create a payment to test it.
+
+Try these requests after connection:
 
 > Show my USDC balance on Arc.
 
@@ -125,20 +131,7 @@ Try these requests in your private client:
 
 > Check its payout status.
 
-Review the recipient, estimated NGN, USDC charge and gas before approving. Execution requires a human confirmation dialog using MCP form elicitation. Clients without that capability can use [local human review](docs/usage.md#local-human-review).
-
-## Web and mobile connector preview
-
-Development work on the web/mobile connector is separate from the published `0.2.2`
-wallet integration. The source checkout includes an isolated OAuth/HTTP
-compatibility test with four tools, including a browser approval test that works
-without native form elicitation. It cannot connect a wallet, register a bank,
-prepare an order or send funds.
-
-See [web connector development](docs/web-connector.md) to run the test and record
-observed client support. ChatGPT and Claude web/mobile payment support remains
-unverified. Installing the npm package in a chat sandbox does not establish
-network access, MCP registration or human approval support.
+Review the recipient, estimated NGN, USDC charge, gas and expiry before approving. Preparation creates an unfunded provider order; it does not send your USDC.
 
 ## Tools
 
@@ -162,7 +155,15 @@ network access, MCP registration or human approval support.
 - **Approval expires within five minutes.** Uncertain transfers are recorded and never automatically resent.
 - **Provider completion and bank receipt are separate evidence.** PAJ status is tracked automatically; the recipient can separately confirm bank credit.
 
-For a fixed merchant invoice, the calling application must reconcile the final NGN amount and merchant confirmation before marking the purchase paid. See [usage and recovery](docs/usage.md).
+For a fixed merchant invoice, the calling application must reconcile the final NGN amount and merchant confirmation before marking the purchase paid. See [usage and recovery](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/docs/usage.md).
+
+**Live route verified:** on October 20, 2026, Circle confirmed an Arc USDC transfer, PAJ returned a matching completed payout receipt, and the recipient confirmed receiving the NGN. See [verification evidence](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/docs/live-integration.md). This verifies that payment route; client compatibility and human approval support must still be checked in each environment.
+
+## Wallet and credential storage
+
+Circle authentication, the private payout profile and local payout history stay in the environment where the package runs. Circle sessions and wallet signing keys are not sent to the PAJ backend. The hosted service manages PAJ access, and your wallet funds the approved PAJ order directly. A wallet address alone does not grant spending access.
+
+For your first Circle login, follow [Circle's wallet setup](https://agents.circle.com/skills/setup.md) separately. For an existing login, reuse it. See [wallet setup](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/docs/provider-setup.md) for configuration and [backend deployment](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/docs/backend.md) for operator instructions.
 
 ## Development
 
@@ -176,10 +177,10 @@ npm run test:package
 
 Tests use controlled PAJ responses, fake Circle executables and temporary databases. They require no credentials and move no real money. The runtime contains one payment implementation: PAJ v2 with Circle Agent Wallet on Arc.
 
-The [Cloudflare backend](docs/backend.md) uses Workers and D1. It validates signed requests, isolates orders per installation, limits usage and records uncertain order creation without automatically retrying it. Developers can self-host the same backend with their own provider credentials.
+The [Cloudflare backend](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/docs/backend.md) uses Workers and D1. It validates signed requests, isolates orders per installation, limits usage and records uncertain order creation without automatically retrying it. Developers can self-host the same backend with their own provider credentials.
 
-[Copy a prompt](docs/prompts.md) · [Contributing](CONTRIBUTING.md) · [Configuration and CLI](docs/usage.md) · [Verification](docs/live-integration.md)
+[Copy a prompt](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/docs/prompts.md) · [Contributing](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/CONTRIBUTING.md) · [Configuration and CLI](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/docs/usage.md) · [Verification](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/docs/live-integration.md)
 
 ## License
 
-[MIT](LICENSE).
+[MIT](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.2.3/LICENSE).
