@@ -12,7 +12,12 @@ import { isInitializeRequest, type CallToolResult } from "@modelcontextprotocol/
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 import { packageInfo } from "./package-info.js";
-import { PROBE_SCOPE, PROBE_SCOPES, ProbeAuthorization } from "./web-probe-auth.js";
+import {
+  PROBE_SCOPE,
+  PROBE_SCOPES,
+  ProbeAuthorization,
+  type ProbeConsentEvent,
+} from "./web-probe-auth.js";
 import { landingPage, pageHeaders, sendPage } from "./web-probe-page.js";
 import { requireThat } from "./errors.js";
 
@@ -171,6 +176,13 @@ export function createWebProbeServer(options: {
   publicUrl: string;
   allowedOrigins?: string[];
   now?: () => number;
+  onConsentEvent?: (event: ProbeConsentEvent) => void;
+  onOAuthResponse?: (event: {
+    event: "probe_oauth_response";
+    path: string;
+    method: string;
+    status: number;
+  }) => void;
 }) {
   const origin = webProbeOrigin(options.publicUrl);
   const resource = new URL("/mcp", origin);
@@ -178,7 +190,7 @@ export function createWebProbeServer(options: {
     origin.origin,
     ...(options.allowedOrigins ?? []).map((value) => webProbeOrigin(value).origin),
   ]);
-  const provider = new ProbeAuthorization(origin, resource, options.now);
+  const provider = new ProbeAuthorization(origin, resource, options.now, options.onConsentEvent);
   const app = createMcpExpressApp({
     allowedHosts: [origin.hostname, "127.0.0.1", "localhost", "[::1]"],
   });
@@ -189,6 +201,19 @@ export function createWebProbeServer(options: {
   const usage = new Map<string, { count: number; until: number }>();
   app.use((req, res, next) => {
     pageHeaders(res);
+    if (["/authorize", "/consent", "/token", "/register"].includes(req.path)) {
+      // Only fixed route names and response codes: never query strings, request
+      // bodies, headers or callback URLs, which can contain OAuth credentials.
+      const path = req.path;
+      res.once("finish", () =>
+        options.onOAuthResponse?.({
+          event: "probe_oauth_response",
+          path,
+          method: req.method,
+          status: res.statusCode,
+        }),
+      );
+    }
     const requestOrigin = req.headers.origin;
     if (requestOrigin && !allowedOrigins.has(requestOrigin)) {
       res.status(403).json({ error: "ORIGIN_NOT_ALLOWED" });
@@ -390,6 +415,8 @@ export async function startWebProbe() {
   const probe = createWebProbeServer({
     publicUrl: process.env.OFFRAMP_WEB_PROBE_URL ?? "http://127.0.0.1:" + port,
     allowedOrigins: process.env.OFFRAMP_WEB_PROBE_ALLOWED_ORIGINS?.split(",").filter(Boolean) ?? [],
+    onConsentEvent: (event) => console.error(JSON.stringify(event)),
+    onOAuthResponse: (event) => console.error(JSON.stringify(event)),
   });
   await new Promise<void>((resolve, reject) => {
     probe.http.once("error", reject);

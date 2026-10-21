@@ -19,10 +19,18 @@ import type {
   OAuthTokens,
   OAuthTokenRevocationRequest,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { consentPage, messagePage, sendPage } from "./web-probe-page.js";
+import { consentPage, messagePage, pageHeaders, sendPage } from "./web-probe-page.js";
 
 export const PROBE_SCOPE = "offramp:probe";
 export const PROBE_SCOPES = [PROBE_SCOPE, "offline_access"];
+export type ProbeConsentEvent = {
+  event: "probe_consent";
+  attempt: string;
+  stage: "created" | "approved" | "denied" | "rejected";
+  ageMs?: number;
+  reason?:
+    "expired" | "already_submitted" | "unknown_request" | "missing_cookie" | "changed_cookie";
+};
 const CONSENT_COOKIE = "offramp_probe_consent";
 const secret = () => randomBytes(32).toString("base64url");
 const digest = (value: string) => createHash("sha256").update(value).digest();
@@ -92,11 +100,18 @@ export class ProbeAuthorization implements OAuthServerProvider {
   private readonly codes: ExpiringStore<Grant>;
   private readonly access: ExpiringStore<Token>;
   private readonly refresh: ExpiringStore<Token>;
+  // Bounded diagnostic receipts contain only hashes and timestamps, never
+  // cookie bindings, OAuth parameters, authorization codes or tokens.
+  private readonly consentHistory = new Map<
+    string,
+    { createdAtMs: number; completed?: "approved" | "denied" }
+  >();
 
   constructor(
     readonly origin: URL,
     readonly resource: URL,
     private readonly now: () => number = Date.now,
+    private readonly onConsentEvent: (event: ProbeConsentEvent) => void = () => {},
   ) {
     this.clients = new ExpiringStore(128, now);
     this.consents = new ExpiringStore(128, now);
@@ -137,6 +152,29 @@ export class ProbeAuthorization implements OAuthServerProvider {
       throw new InvalidTargetError("This grant is only for the connection-test endpoint.");
   }
 
+  private consentEvent(
+    id: string,
+    stage: ProbeConsentEvent["stage"],
+    reason?: ProbeConsentEvent["reason"],
+  ) {
+    const attempt = digest(id).toString("hex").slice(0, 16);
+    const previous = this.consentHistory.get(attempt);
+    if (stage === "created") {
+      if (this.consentHistory.size >= 256)
+        this.consentHistory.delete(this.consentHistory.keys().next().value!);
+      this.consentHistory.set(attempt, { createdAtMs: this.now() });
+    } else if (previous && (stage === "approved" || stage === "denied")) {
+      previous.completed = stage;
+    }
+    this.onConsentEvent({
+      event: "probe_consent",
+      attempt,
+      stage,
+      ...(previous ? { ageMs: Math.max(0, this.now() - previous.createdAtMs) } : {}),
+      ...(reason ? { reason } : {}),
+    });
+  }
+
   async authorize(
     client: OAuthClientInformationFull,
     params: AuthorizationParams,
@@ -156,11 +194,15 @@ export class ProbeAuthorization implements OAuthServerProvider {
       cookieDigest: digest(binding),
       expiresAtMs: this.now() + 5 * 60_000,
     });
+    this.consentEvent(id, "created");
     res.setHeader("Set-Cookie", this.cookie(id, binding, 300));
     sendPage(
       res,
       200,
       consentPage(id, client.client_name ?? "MCP client", new URL(params.redirectUri).origin),
+      // Chromium also applies form-action to the OAuth redirect after the POST.
+      // Allow only this request's already-validated registered callback origin.
+      new URL(params.redirectUri),
     );
   }
 
@@ -223,17 +265,27 @@ export class ProbeAuthorization implements OAuthServerProvider {
       .find((item) => item.startsWith(CONSENT_COOKIE + "_" + id + "="))
       ?.slice(CONSENT_COOKIE.length + id.length + 2);
     if (!pending) {
+      const previous = this.consentHistory.get(digest(id).toString("hex").slice(0, 16));
+      const reason = previous?.completed
+        ? "already_submitted"
+        : previous
+          ? "expired"
+          : "unknown_request";
+      this.consentEvent(id, "rejected", reason);
       sendPage(
         res,
         403,
         messagePage(
-          "Connection expired",
-          "This request timed out, was already used, or the test server restarted. Return to your chat and start a new connection.",
+          reason === "already_submitted" ? "Response already submitted" : "Connection expired",
+          reason === "already_submitted"
+            ? "This form was already submitted. Return to your chat and check whether the connection finished. If it did not, start a new connection."
+            : "This request timed out or the test server restarted. Return to your chat and start a new connection.",
         ),
       );
       return;
     }
     if (!cookie || !timingSafeEqual(digest(cookie), pending.cookieDigest)) {
+      this.consentEvent(id, "rejected", cookie ? "changed_cookie" : "missing_cookie");
       sendPage(
         res,
         403,
@@ -263,8 +315,10 @@ export class ProbeAuthorization implements OAuthServerProvider {
       });
       redirect.searchParams.set("code", code);
     }
+    pageHeaders(res, redirect);
     res.writeHead(303, { Location: redirect.href });
     res.end();
+    this.consentEvent(id, form.get("decision") === "allow" ? "approved" : "denied");
   }
 
   private grant(client: OAuthClientInformationFull, code: string) {

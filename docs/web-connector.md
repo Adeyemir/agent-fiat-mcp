@@ -100,6 +100,14 @@ browser that opened it. A server restart or a previously submitted form requires
 a fresh connection from the chat app; refreshing the old form cannot renew it.
 The page distinguishes an expired request from a missing or changed browser
 cookie without exposing cookie values or authorization details.
+The consent page's form policy permits its own origin and that request's
+registered callback origin, because browsers can enforce `form-action` again on
+the redirect back to the chat app. Other pages allow only their own origin.
+The test CLI logs redacted consent lifecycle events and OAuth route/status codes
+to help distinguish accepted, repeated, expired and unknown requests. Attempt
+references are one-way hashes; logs omit request bodies, headers, OAuth query
+parameters, cookies, callback URLs, codes and tokens. These logs and HTTP checks
+do not replace observing the complete browser connection flow.
 Access tokens last 15 minutes. An `offline_access` grant allows rotating refresh
 tokens with a one-hour lifetime. Tokens are scoped to this exact `/mcp` resource.
 MCP sessions are bound to their OAuth connection, limited to four per connection
