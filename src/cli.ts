@@ -55,6 +55,11 @@ async function doctor() {
 
 async function main() {
   const [command, payoutId, ...extra] = process.argv.slice(2);
+  if (command === "web-probe") {
+    requireThat(payoutId === undefined, "INVALID_COMMAND", "web-probe takes no arguments.");
+    const { startWebProbe } = await import("./web-probe.js");
+    return startWebProbe();
+  }
   if (command === "init") {
     requireThat(payoutId === undefined, "INVALID_COMMAND", "init takes no arguments.");
     console.log(
@@ -152,6 +157,7 @@ async function main() {
         "Usage: naira-offramp-mcp [command]",
         "",
         "  serve                                      Run the stdio MCP server (default)",
+        "  web-probe                                  Run the isolated web compatibility test",
         "  init                                       Create a private configuration file",
         "  doctor                                     Check local configuration",
         "  provider-check                             Check PAJ and wallet access",
