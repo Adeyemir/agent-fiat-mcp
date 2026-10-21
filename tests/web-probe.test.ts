@@ -237,7 +237,14 @@ test("browser consent escapes client text, requires its cookie and origin, and i
   );
   assert.equal((await f.consent(pending, "allow", { Origin: "null" })).status, 403);
   assert.equal((await f.consent(pending, "allow", { Origin: "" })).status, 403);
-  assert.equal((await f.consent(pending, "allow", { Cookie: "" })).status, 403);
+  const missingCookie = await f.consent(pending, "allow", { Cookie: "" });
+  assert.equal(missingCookie.status, 403);
+  assert.ok((await missingCookie.text()).includes("Browser session missing"));
+  const changedCookie = await f.consent(pending, "allow", {
+    Cookie: pending.cookie!.split("=")[0] + "=wrong-binding",
+  });
+  assert.equal(changedCookie.status, 403);
+  assert.ok((await changedCookie.text()).includes("Browser session changed"));
   const denied = await f.consent(pending, "deny");
   assert.equal(denied.status, 303);
   const redirect = new URL(denied.headers.get("location")!);
@@ -246,6 +253,25 @@ test("browser consent escapes client text, requires its cookie and origin, and i
   assert.equal(redirect.searchParams.get("state"), "test-state");
   assert.equal(redirect.searchParams.has("code"), false);
   assert.equal((await f.consent(pending)).status, 403);
+});
+
+test("overlapping browser consent tabs keep separate cookies and clear only the submitted attempt", async (t) => {
+  const f = await fixture(t);
+  const { client_id } = await f.register();
+  const first = await f.begin(client_id);
+  const second = await f.begin(client_id);
+  assert.ok(first.cookie && second.cookie);
+  assert.notEqual(first.cookie.split("=")[0], second.cookie.split("=")[0]);
+  const browserCookies = first.cookie + "; " + second.cookie;
+  const approved = await f.consent(first, "allow", { Cookie: browserCookies });
+  assert.equal(approved.status, 303);
+  assert.equal(approved.headers.get("set-cookie")?.split("=")[0], first.cookie.split("=")[0]);
+  assert.ok(approved.headers.get("set-cookie")?.includes("Max-Age=0"));
+  // After the browser removes the first cookie, the second tab still works.
+  assert.equal((await f.consent(second)).status, 303);
+  const reused = await f.consent(first);
+  assert.equal(reused.status, 403);
+  assert.ok((await reused.text()).includes("Connection expired"));
 });
 
 test("OAuth enforces PKCE, client, callback, resource, scope and one-time code bindings", async (t) => {

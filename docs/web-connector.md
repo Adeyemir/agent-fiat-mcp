@@ -94,6 +94,12 @@ wallet credentials, register recipients, create orders or send funds.
 ```
 
 The consent page expires after five minutes; authorization codes last one minute.
+Each consent attempt has its own short-lived browser cookie, so opening another
+attempt does not invalidate an earlier tab. Complete the consent in the same
+browser that opened it. A server restart or a previously submitted form requires
+a fresh connection from the chat app; refreshing the old form cannot renew it.
+The page distinguishes an expired request from a missing or changed browser
+cookie without exposing cookie values or authorization details.
 Access tokens last 15 minutes. An `offline_access` grant allows rotating refresh
 tokens with a one-hour lifetime. Tokens are scoped to this exact `/mcp` resource.
 MCP sessions are bound to their OAuth connection, limited to four per connection
