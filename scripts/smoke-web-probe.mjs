@@ -90,6 +90,11 @@ try {
   assert.ok(request && cookie);
   const approved = await post("/consent", { request, decision: "allow" }, cookie);
   assert.equal(approved.status, 303);
+  const browserCookie = approved.headers
+    .getSetCookie()
+    .find((value) => /^(?:__Host-)?offramp_probe_browser_/.test(value))
+    ?.split(";")[0];
+  assert.ok(browserCookie);
   const redirect = new URL(approved.headers.get("location"));
   assert.equal(redirect.origin, "https://client.example");
   const token = await post("/token", {
@@ -118,7 +123,9 @@ try {
   });
   await client.connect(transport);
   assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name).sort(), [
+    "get_browser_approval_test",
     "get_connection_readiness",
+    "start_browser_approval_test",
     "test_human_approval",
   ]);
   const readiness = (await client.callTool({ name: "get_connection_readiness", arguments: {} }))
@@ -126,6 +133,36 @@ try {
   assert.equal(readiness.walletConnected, false);
   assert.equal(readiness.paymentExecutionAvailable, false);
   assert.equal(readiness.approvalUiVerified, false);
+  assert.equal(readiness.browserApprovalTestAvailable, true);
+  const browserTest = (
+    await client.callTool({ name: "start_browser_approval_test", arguments: {} })
+  ).structuredContent.result;
+  const browserUrl = new URL(browserTest.browserUrl);
+  assert.equal(browserUrl.origin, target.origin);
+  assert.equal(browserTest.status, "pending");
+  assert.equal((await fetch(browserUrl, { signal: AbortSignal.timeout(15_000) })).status, 403);
+  const browserPage = await fetch(browserUrl, {
+    headers: { Cookie: browserCookie },
+    signal: AbortSignal.timeout(15_000),
+  });
+  assert.equal(browserPage.status, 200);
+  const browserHtml = await browserPage.text();
+  const csrf = /name="csrf" value="([^"]+)"/.exec(browserHtml)?.[1];
+  assert.ok(csrf);
+  // Synthetic cancellation checks the HTTP exchange, not human interaction.
+  const cancelled = await post(browserUrl.pathname, { csrf, decision: "cancel" }, browserCookie);
+  assert.equal(cancelled.status, 303);
+  assert.equal(cancelled.headers.get("location"), browserUrl.pathname);
+  const browserResult = (
+    await client.callTool({
+      name: "get_browser_approval_test",
+      arguments: { testId: browserTest.testId },
+    })
+  ).structuredContent.result;
+  assert.equal(browserResult.status, "cancelled");
+  assert.equal(browserResult.browserBoundResponseObserved, true);
+  assert.equal(browserResult.humanInteractionIndependentlyVerified, false);
+  assert.equal(browserResult.paymentExecutionAvailable, false);
   const observed = (await client.callTool({ name: "test_human_approval", arguments: {} }))
     .structuredContent.result;
   assert.equal(prompts, 1);
@@ -136,7 +173,8 @@ try {
     JSON.stringify({
       endpoint: endpoint.href,
       oauth: "passed",
-      tools: "2 compatibility tools",
+      tools: "4 compatibility tools",
+      automatedBrowserExchange: "cancelled successfully",
       automatedFormExchange: "cancelled successfully",
       humanUiVerified: false,
       walletConnected: false,

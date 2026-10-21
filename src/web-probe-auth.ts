@@ -32,6 +32,7 @@ export type ProbeConsentEvent = {
     "expired" | "already_submitted" | "unknown_request" | "missing_cookie" | "changed_cookie";
 };
 const CONSENT_COOKIE = "offramp_probe_consent";
+const BROWSER_SESSION_MS = 60 * 60_000;
 const secret = () => randomBytes(32).toString("base64url");
 const digest = (value: string) => createHash("sha256").update(value).digest();
 
@@ -100,6 +101,10 @@ export class ProbeAuthorization implements OAuthServerProvider {
   private readonly codes: ExpiringStore<Grant>;
   private readonly access: ExpiringStore<Token>;
   private readonly refresh: ExpiringStore<Token>;
+  private readonly browserBindings: ExpiringStore<{
+    bindingDigest: Buffer;
+    expiresAtMs: number;
+  }>;
   // Bounded diagnostic receipts contain only hashes and timestamps, never
   // cookie bindings, OAuth parameters, authorization codes or tokens.
   private readonly consentHistory = new Map<
@@ -118,6 +123,7 @@ export class ProbeAuthorization implements OAuthServerProvider {
     this.codes = new ExpiringStore(128, now);
     this.access = new ExpiringStore(512, now);
     this.refresh = new ExpiringStore(512, now);
+    this.browserBindings = new ExpiringStore(128, now);
     this.clientsStore = {
       getClient: (id) => this.clients.get(id)?.client,
       registerClient: (input) => {
@@ -219,6 +225,29 @@ export class ProbeAuthorization implements OAuthServerProvider {
     );
   }
 
+  private browserCookieName(connectionId: string) {
+    return (
+      (this.origin.protocol === "https:" ? "__Host-" : "") + "offramp_probe_browser_" + connectionId
+    );
+  }
+
+  hasBrowserBinding(connectionId: string) {
+    return Boolean(this.browserBindings.get(connectionId));
+  }
+
+  // This proves possession of a test connection's browser cookie, not a
+  // person's identity, Circle authentication or wallet ownership.
+  verifyBrowserBinding(connectionId: string, req: IncomingMessage) {
+    const binding = this.browserBindings.get(connectionId);
+    const name = this.browserCookieName(connectionId) + "=";
+    const cookie = req.headers.cookie
+      ?.split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(name))
+      ?.slice(name.length);
+    return Boolean(binding && cookie && timingSafeEqual(digest(cookie), binding.bindingDigest));
+  }
+
   async consent(req: IncomingMessage, res: ServerResponse) {
     if (
       req.headers.origin !== this.origin.origin ||
@@ -297,7 +326,7 @@ export class ProbeAuthorization implements OAuthServerProvider {
       return;
     }
     this.consents.delete(id);
-    res.setHeader("Set-Cookie", this.cookie(id, "", 0));
+    const cookies = [this.cookie(id, "", 0)];
     const redirect = new URL(pending.params.redirectUri);
     if (pending.params.state !== undefined)
       redirect.searchParams.set("state", pending.params.state);
@@ -305,16 +334,30 @@ export class ProbeAuthorization implements OAuthServerProvider {
       redirect.searchParams.set("error", "access_denied");
     } else {
       const code = secret();
+      const connectionId = randomUUID();
+      const browserSecret = secret();
+      this.browserBindings.set(connectionId, {
+        bindingDigest: digest(browserSecret),
+        expiresAtMs: this.now() + BROWSER_SESSION_MS,
+      });
       this.codes.set(code, {
         clientId: pending.client.client_id,
-        connectionId: randomUUID(),
+        connectionId,
         redirectUri: pending.params.redirectUri,
         challenge: pending.params.codeChallenge,
         scopes: pending.params.scopes!,
         expiresAtMs: this.now() + 60_000,
       });
+      cookies.push(
+        this.browserCookieName(connectionId) +
+          "=" +
+          browserSecret +
+          "; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600" +
+          (this.origin.protocol === "https:" ? "; Secure" : ""),
+      );
       redirect.searchParams.set("code", code);
     }
+    res.setHeader("Set-Cookie", cookies);
     pageHeaders(res, redirect);
     res.writeHead(303, { Location: redirect.href });
     res.end();
@@ -400,6 +443,7 @@ export class ProbeAuthorization implements OAuthServerProvider {
     if (grant?.clientId !== client.client_id) return;
     this.access.deleteConnection(grant.connectionId);
     this.refresh.deleteConnection(grant.connectionId);
+    this.browserBindings.delete(grant.connectionId);
   }
 }
 

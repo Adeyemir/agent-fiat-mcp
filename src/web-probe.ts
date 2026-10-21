@@ -20,6 +20,7 @@ import {
 } from "./web-probe-auth.js";
 import { landingPage, pageHeaders, sendPage } from "./web-probe-page.js";
 import { requireThat } from "./errors.js";
+import { BrowserApprovalProbe, type BrowserProbeEvent } from "./web-probe-browser.js";
 
 const SESSION_IDLE_MS = 15 * 60_000;
 const MAXIMUM_SESSIONS = 64;
@@ -34,12 +35,15 @@ function toolResult(result: Record<string, unknown>, isError = false): CallToolR
   };
 }
 
-export function createWebProbeMcpServer(connectionId: string) {
+export function createWebProbeMcpServer(
+  connectionId: string,
+  browserApproval: BrowserApprovalProbe,
+) {
   const server = new McpServer(
     { name: "naira-offramp-web-probe", version: packageInfo.version },
     {
       instructions:
-        "Compatibility test only. This server has no wallet or payment tools. Check connection readiness, then ask the human whether to try test_human_approval. Never request API keys, OTPs or wallet credentials. A successful approval test grants no payment authority. Report advertised capabilities separately from an observed human response. Do not infer the client's subscription plan or mobile support.",
+        "Compatibility test only. This server has no wallet or payment tools. Check connection readiness. Native test_human_approval requires advertised form support. For a browser test, call start_browser_approval_test, show its URL unchanged, and have the human open it in the browser used to connect this connector. Never open or submit that page on the human's behalf. After they return, call get_browser_approval_test. Never request API keys, OTPs or wallet credentials. A successful test grants no payment authority or proof of identity. Report advertised capabilities separately from an observed human response. Do not infer the client's subscription plan or mobile support.",
       maxToolInputElements: 4,
     },
   );
@@ -66,11 +70,43 @@ export function createWebProbeMcpServer(connectionId: string) {
           formElicitationAdvertised: Boolean(
             server.server.getClientCapabilities()?.elicitation?.form,
           ),
+          urlElicitationAdvertised: Boolean(
+            server.server.getClientCapabilities()?.elicitation?.url,
+          ),
+          browserApprovalTestAvailable: true,
           approvalUiVerified: false,
           walletConnected: false,
           paymentExecutionAvailable: false,
         },
       }),
+  );
+  server.registerTool(
+    "start_browser_approval_test",
+    {
+      title: "Start a browser approval test",
+      description:
+        "Create a harmless test and return its browser URL. No native form support is required. Show the URL unchanged to the human and have them open it in the browser used to connect this connector. Do not open or submit it yourself. This cannot approve payments or verify identity.",
+      inputSchema: z.object({}).strict(),
+      annotations: { ...annotations, readOnlyHint: false, idempotentHint: false },
+    },
+    () => {
+      const reply = browserApproval.start(connectionId);
+      return toolResult(reply, "error" in reply);
+    },
+  );
+  server.registerTool(
+    "get_browser_approval_test",
+    {
+      title: "Check a browser approval test",
+      description:
+        "Read the server-recorded status of this connection's browser test after the human returns from the page. Cannot record or change a response. Browser-cookie possession is not independent proof of a human, identity or payment authorization.",
+      inputSchema: z.object({ testId: z.uuid() }).strict(),
+      annotations: { ...annotations, idempotentHint: true },
+    },
+    ({ testId }) => {
+      const reply = browserApproval.read(connectionId, testId);
+      return toolResult(reply, "error" in reply);
+    },
   );
   server.registerTool(
     "test_human_approval",
@@ -177,6 +213,7 @@ export function createWebProbeServer(options: {
   allowedOrigins?: string[];
   now?: () => number;
   onConsentEvent?: (event: ProbeConsentEvent) => void;
+  onBrowserEvent?: (event: BrowserProbeEvent) => void;
   onOAuthResponse?: (event: {
     event: "probe_oauth_response";
     path: string;
@@ -191,6 +228,12 @@ export function createWebProbeServer(options: {
     ...(options.allowedOrigins ?? []).map((value) => webProbeOrigin(value).origin),
   ]);
   const provider = new ProbeAuthorization(origin, resource, options.now, options.onConsentEvent);
+  const browserApproval = new BrowserApprovalProbe(
+    origin,
+    provider,
+    options.now,
+    options.onBrowserEvent,
+  );
   const app = createMcpExpressApp({
     allowedHosts: [origin.hostname, "127.0.0.1", "localhost", "[::1]"],
   });
@@ -249,6 +292,15 @@ export function createWebProbeServer(options: {
       else res.end();
     });
   });
+  app.get("/browser-approval/:testId", (req, res) =>
+    browserApproval.show(req.params.testId, req, res),
+  );
+  app.post("/browser-approval/:testId", (req, res) => {
+    void browserApproval.respond(req.params.testId, req, res).catch(() => {
+      if (!res.headersSent) res.status(400).json({ error: "INVALID_BROWSER_RESPONSE" });
+      else res.end();
+    });
+  });
   app.use(
     mcpAuthRouter({
       provider,
@@ -257,7 +309,7 @@ export function createWebProbeServer(options: {
       resourceName: "Naira Offramp connection test",
       scopesSupported: PROBE_SCOPES,
       serviceDocumentationUrl: new URL(
-        "https://github.com/Adeyemir/naira-offramp-mcp/blob/feat/web-mobile-mcp/docs/web-connector.md",
+        "https://github.com/Adeyemir/naira-offramp-mcp/blob/feat/browser-approval-test/docs/web-connector.md",
       ),
     }),
   );
@@ -323,7 +375,7 @@ export function createWebProbeServer(options: {
         startingTotal++;
         starting.set(connectionId, (starting.get(connectionId) ?? 0) + 1);
         reservation = connectionId;
-        const server = createWebProbeMcpServer(connectionId);
+        const server = createWebProbeMcpServer(connectionId, browserApproval);
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: randomUUID,
           onsessioninitialized: (id) => {
@@ -416,6 +468,7 @@ export async function startWebProbe() {
     publicUrl: process.env.OFFRAMP_WEB_PROBE_URL ?? "http://127.0.0.1:" + port,
     allowedOrigins: process.env.OFFRAMP_WEB_PROBE_ALLOWED_ORIGINS?.split(",").filter(Boolean) ?? [],
     onConsentEvent: (event) => console.error(JSON.stringify(event)),
+    onBrowserEvent: (event) => console.error(JSON.stringify(event)),
     onOAuthResponse: (event) => console.error(JSON.stringify(event)),
   });
   await new Promise<void>((resolve, reject) => {

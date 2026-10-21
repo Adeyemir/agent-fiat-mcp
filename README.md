@@ -103,7 +103,8 @@ Review the recipient, estimated NGN, USDC charge and gas before approving. Execu
 
 Development work on the web/mobile connector is separate from the published `0.2.2`
 wallet integration. The source checkout includes an isolated OAuth/HTTP
-compatibility test with two tools. It cannot connect a wallet, register a bank,
+compatibility test with four tools, including a browser approval test that works
+without native form elicitation. It cannot connect a wallet, register a bank,
 prepare an order or send funds.
 
 See [web connector development](docs/web-connector.md) to run the test and record
