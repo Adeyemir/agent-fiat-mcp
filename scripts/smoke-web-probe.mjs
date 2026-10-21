@@ -78,6 +78,7 @@ try {
     signal: AbortSignal.timeout(15_000),
   });
   assert.equal(consent.status, 200);
+  assert.equal(consent.headers.get("referrer-policy"), "same-origin");
   const page = await consent.text();
   const request = /name="request" value="([^"]+)"/.exec(page)?.[1];
   const cookie = consent.headers.get("set-cookie")?.split(";")[0];
