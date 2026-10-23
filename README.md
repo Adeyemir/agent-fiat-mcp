@@ -30,6 +30,20 @@ Reuse the existing Circle executable, login and wallet. This project does not in
 
 ## Install and configure locally
 
+### Install from npm
+
+In a local project directory:
+
+~~~sh
+npm install naira-offramp-mcp@0.3.0
+cp -n node_modules/naira-offramp-mcp/.env.example .env
+chmod 600 .env
+~~~
+
+Configure the private .env file as shown below. Use the installed node_modules/naira-offramp-mcp/dist/cli.js file as the server entry point. The npm run/start commands in this guide refer to a source checkout.
+
+### Build from source
+
 ~~~sh
 git clone https://github.com/Adeyemir/naira-offramp-mcp.git
 cd naira-offramp-mcp
@@ -68,7 +82,7 @@ Use an absolute CIRCLE_BIN path if the authenticated executable is not available
 
 **Circle API keys and Entity Secret are not used by this implementation.** Wallet access comes from the existing Circle Agent Wallet CLI session. There are no Circle API-key or Entity-Secret environment variables to configure here. PAJ email/OTP login and legacy PAJ session tokens are also unused; PAJ v2 uses the Business API key directly.
 
-This checkout reads process environment variables and the .env file passed to Node. It does not automatically load the provider.env profile or use the hosted PAJ service from later npm versions. Preserve existing profile files and payout history; do not delete or overwrite them during setup.
+Version 0.3.0 restores the local implementation and requires your own PAJ Business API key. It reads process environment variables and the .env file passed to Node. It does not automatically load the provider.env profile or use the hosted PAJ service from the 0.2.x releases. Preserve existing profile files and payout history; do not delete or overwrite them during setup.
 
 ## Read-only diagnostics
 
@@ -86,6 +100,14 @@ Build first, then launch the server through a local MCP client. Replace both abs
 ~~~sh
 node --env-file=/absolute/path/naira-offramp-mcp/.env /absolute/path/naira-offramp-mcp/dist/cli.js serve
 ~~~
+
+For an npm installation, use the installed entry point instead:
+
+~~~sh
+node --env-file=/absolute/path/to/.env /absolute/path/to/node_modules/naira-offramp-mcp/dist/cli.js serve
+~~~
+
+The same Node command runs CLI operations when serve is replaced with doctor, provider-check, set-bank, quote 1000 NGN or approve YOUR_PREPARED_PAYOUT_ID.
 
 A local stdio MCP configuration can use:
 
@@ -155,7 +177,7 @@ The code checks order identity, source wallet, destination, token, chain and amo
 
 A completed PAJ receipt must match the confirmed Circle transfer. Provider completion and independent bank-credit confirmation remain separate: the MCP does not query the recipient's bank balance.
 
-The first live payout has recipient-confirmed bank credit recorded in [verification evidence](docs/live-integration.md). See [provider setup](docs/provider-setup.md) and [usage and recovery](docs/usage.md) for the detailed local workflow.
+The first live payout has recipient-confirmed bank credit recorded in [verification evidence](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.3.0/docs/live-integration.md). See [provider setup](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.3.0/docs/provider-setup.md) and [usage and recovery](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.3.0/docs/usage.md) for the detailed local workflow.
 
 ## Development checks
 
@@ -167,4 +189,4 @@ npm test
 
 Tests use fake provider/wallet responses and temporary databases. They do not use a real Circle session or move funds. npm run demo explicitly exercises the simulator in an isolated temporary directory; normal startup remains live mode.
 
-[Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)
+[Contributing](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.3.0/CONTRIBUTING.md) · [MIT license](https://github.com/Adeyemir/naira-offramp-mcp/blob/v0.3.0/LICENSE)
