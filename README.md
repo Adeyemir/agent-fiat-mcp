@@ -1,8 +1,8 @@
 # Naira Offramp MCP
 
-**Developer-only local CLI and stdio MCP server for Circle Agent Wallet USDC on Arc → Nigerian bank payouts through PAJ.**
+**A local MCP server and CLI for paying Nigerian bank accounts using Circle Agent Wallet USDC on Arc.**
 
-Run this checkout on a computer or developer-managed terminal environment with access to its own Circle CLI session, private configuration and payout database. It connects directly to PAJ using the developer's Business API key.
+This is a developer-only tool. Run this checkout on a computer or developer-managed terminal environment with access to its own Circle CLI session, private configuration and payout database. It connects directly to PAJ using the developer's Business API key.
 
 **Web/mobile browser connectors are unsupported.** This version has no HTTP MCP endpoint, hosted wallet connection, OAuth callback, browser approval page or browser compatibility probe. A web or mobile chat does not inherit the local Circle session.
 
