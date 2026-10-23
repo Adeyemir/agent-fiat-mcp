@@ -2,6 +2,18 @@
 
 **A local MCP server and CLI for paying Nigerian bank accounts using Circle Agent Wallet USDC on Arc.**
 
+## The problem it solves
+
+An agent can already use USDC to pay other agents, APIs and online tools. But paying a person or a business for real-world services often requires naira in a Nigerian bank account.
+
+Naira Offramp connects those payments to the Circle Agent Wallet the agent already uses. It lets a local agent verify a recipient, show the estimated payment costs, request human approval and pay from its USDC balance on Arc through PAJ.
+
+> “Pay this supplier ₦5,000 from my Circle Agent Wallet. Here are their bank details.”
+
+The recipient receives a bank payment; they do not need to accept USDC.
+
+## Local developer scope
+
 This is a developer-only tool. Run this checkout on a computer or developer-managed terminal environment with access to its own Circle CLI session, private configuration and payout database. It connects directly to PAJ using the developer's Business API key.
 
 **Web/mobile browser connectors are unsupported.** This version has no HTTP MCP endpoint, hosted wallet connection, OAuth callback, browser approval page or browser compatibility probe. A web or mobile chat does not inherit the local Circle session.
