@@ -78,7 +78,10 @@ export class Store {
     return row ? JSON.parse(String(row.data)) as FundingOrder : undefined;
   }
   saveFunding(order: FundingOrder, expected: FundingState): boolean {
-    return this.db.prepare("UPDATE funding_orders SET state=?,data=? WHERE id=? AND state=?").run(order.state, JSON.stringify(order), order.id, expected).changes === 1;
+    const revision = order.revision ?? 0;
+    const saved = this.db.prepare("UPDATE funding_orders SET state=?,data=? WHERE id=? AND state=? AND COALESCE(json_extract(data,'$.revision'),0)=?").run(order.state, JSON.stringify({ ...order, revision: revision + 1 }), order.id, expected, revision).changes === 1;
+    if (saved) order.revision = revision + 1;
+    return saved;
   }
   recentFunding(walletKey: string): FundingOrder[] {
     return this.db.prepare("SELECT data FROM funding_orders WHERE wallet_key=? ORDER BY rowid DESC LIMIT 10").all(walletKey).map(row => JSON.parse(String(row.data)) as FundingOrder);

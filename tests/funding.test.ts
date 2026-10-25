@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { DatabaseSync } from "node:sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { loadConfig } from "../src/config.js";
@@ -165,6 +166,151 @@ test("concurrent preparation through separate stores creates exactly one provide
   release();
   const first = await firstPromise;
   assert.equal(first.fundingId, other.fundingId);
+  assert.equal(f.control.posts, 1);
+});
+
+test("a late INIT response cannot restore bank instructions after another process observes processing", async t => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-fiat-status-race-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const f = fixture(t, join(directory, "profile.sqlite"));
+  const prepared = await f.service.prepare({ amountNgn: "5000" });
+  const secondStore = new Store(join(directory, "profile.sqlite"));
+  t.after(() => secondStore.close());
+  let release!: () => void;
+  let started!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const waiting = new Promise<void>(resolve => { started = resolve; });
+  const delayed: JsonRequest = async (url, options) => {
+    const response = await f.request(url, options);
+    started();
+    await held;
+    return response;
+  };
+  const staleService = new FundingService(f.config, secondStore, delayed, f.wallet, () => f.control.now);
+  const pending = staleService.status(prepared.fundingId);
+  await waiting;
+  f.control.status = "PROCESSING";
+  assert.equal((await f.service.status(prepared.fundingId)).state, "processing");
+  release();
+  const result = await pending;
+  assert.equal(result.state, "processing");
+  assert.equal(result.providerStatus, "PROCESSING");
+  assert.equal(result.bankPayment, undefined);
+  assert.equal(f.store.funding(prepared.fundingId).state, "processing");
+  assert.equal(f.control.posts, 1);
+});
+
+test("processing remains durable when a later provider read regresses to INIT", async t => {
+  const f = fixture(t);
+  const prepared = await f.service.prepare({ amountNgn: "5000" });
+  f.control.status = "PROCESSING";
+  await f.service.status(prepared.fundingId);
+  f.control.status = "INIT";
+  const restarted = new FundingService(f.config, f.store, f.request, f.wallet, () => f.control.now);
+  const result = await restarted.prepare({ amountNgn: "5000" });
+  assert.equal(result.state, "processing");
+  assert.equal(result.providerStatus, "PROCESSING");
+  assert.equal(result.bankPayment, undefined);
+  assert.equal(f.control.posts, 1);
+  f.control.status = "COMPLETED";
+  assert.equal((await restarted.status(prepared.fundingId)).state, "provider_completed");
+});
+
+test("a delayed processing confirmation advances an order after an overlapping INIT refresh", async t => {
+  const f = fixture(t);
+  const prepared = await f.service.prepare({ amountNgn: "5000" });
+  let release!: () => void;
+  let started!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const waiting = new Promise<void>(resolve => { started = resolve; });
+  const delayed: JsonRequest = async (url, options) => {
+    const response = await f.request(url, options);
+    started();
+    await held;
+    return response;
+  };
+  f.control.status = "PROCESSING";
+  const service = new FundingService(f.config, f.store, delayed, f.wallet, () => f.control.now);
+  const pending = service.status(prepared.fundingId);
+  await waiting;
+  f.control.status = "INIT";
+  await f.service.status(prepared.fundingId);
+  release();
+  const result = await pending;
+  assert.equal(result.state, "processing");
+  assert.equal(result.bankPayment, undefined);
+  assert.equal((await f.service.status(prepared.fundingId)).bankPayment, undefined);
+  assert.equal(f.control.posts, 1);
+});
+
+test("reconciliation after processing cannot be cleared by an INIT response", async t => {
+  const f = fixture(t);
+  const prepared = await f.service.prepare({ amountNgn: "5000" });
+  f.control.status = "PROCESSING";
+  await f.service.status(prepared.fundingId);
+  f.control.patch = { accountNumber: "9999999999" };
+  await assert.rejects(f.service.status(prepared.fundingId), code("FUNDING_ORDER_CHANGED"));
+  f.control.patch = {};
+  f.control.status = "INIT";
+  const result = await f.service.status(prepared.fundingId);
+  assert.equal(result.state, "reconciliation_required");
+  assert.equal(result.providerStatus, "PROCESSING");
+  assert.equal(result.lastErrorCode, "FUNDING_ORDER_CHANGED");
+  assert.equal(result.bankPayment, undefined);
+});
+
+test("a stale funding save cannot clear a newer reconciliation result with the same state", async t => {
+  const f = fixture(t);
+  const prepared = await f.service.prepare({ amountNgn: "5000" });
+  f.control.patch = { accountNumber: "9999999999" };
+  await assert.rejects(f.service.status(prepared.fundingId));
+  const stale = f.store.funding(prepared.fundingId);
+  f.control.now += 73 * 60 * 60_000;
+  f.control.failStatus = true;
+  await assert.rejects(f.service.status(prepared.fundingId));
+  const newer = f.store.funding(prepared.fundingId);
+  assert.equal(newer.state, stale.state);
+  assert.notEqual(newer.lastErrorCode, stale.lastErrorCode);
+  stale.state = "awaiting_fiat";
+  delete stale.lastErrorCode;
+  assert.equal(f.store.saveFunding(stale, "reconciliation_required"), false);
+  assert.deepEqual(f.store.funding(prepared.fundingId), newer);
+});
+
+test("a late failed read returns the completion observed by another funding poll", async t => {
+  const f = fixture(t);
+  const prepared = await f.service.prepare({ amountNgn: "5000" });
+  let release!: () => void;
+  let started!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const waiting = new Promise<void>(resolve => { started = resolve; });
+  const failedRead: JsonRequest = async () => { started(); await held; throw new Error("must-not-leak-late-read"); };
+  const stale = new FundingService(f.config, f.store, failedRead, f.wallet, () => f.control.now);
+  const pending = stale.status(prepared.fundingId);
+  await waiting;
+  f.control.status = "COMPLETED";
+  const completed = await f.service.status(prepared.fundingId);
+  release();
+  assert.deepEqual(await pending, completed);
+  assert.equal(f.store.funding(prepared.fundingId).state, "provider_completed");
+});
+
+test("existing funding records without a revision remain readable and can settle", async t => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-fiat-legacy-funding-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const path = join(directory, "profile.sqlite");
+  const f = fixture(t, path);
+  const prepared = await f.service.prepare({ amountNgn: "5000" });
+  const legacy = f.store.funding(prepared.fundingId);
+  delete legacy.revision;
+  const db = new DatabaseSync(path);
+  try { db.prepare("UPDATE funding_orders SET data=? WHERE id=?").run(JSON.stringify(legacy), legacy.id); }
+  finally { db.close(); }
+  f.control.status = "PROCESSING";
+  assert.equal((await f.service.status(prepared.fundingId)).bankPayment, undefined);
+  assert.equal(f.store.funding(prepared.fundingId).revision, 1);
+  f.control.status = "COMPLETED";
+  assert.equal((await f.service.status(prepared.fundingId)).state, "provider_completed");
   assert.equal(f.control.posts, 1);
 });
 

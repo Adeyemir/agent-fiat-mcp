@@ -81,6 +81,8 @@ export class FundingService {
     let provider: PajOrder;
     try { provider = await this.provider().transaction(record.order.id, "ON_RAMP"); }
     catch (error) {
+      const current = this.load(id);
+      if ((current.revision ?? 0) !== (record.revision ?? 0) || ["provider_completed", "failed"].includes(current.state)) return this.summary(current);
       if (record.expiresAt && Date.parse(record.expiresAt) <= this.now()) {
         const previous = record.state;
         record.state = "reconciliation_required";
@@ -89,6 +91,10 @@ export class FundingService {
       }
       throw error;
     }
+    const current = this.load(id);
+    if (["provider_completed", "failed"].includes(current.state)) return this.summary(current);
+    const changed = (current.revision ?? 0) !== (record.revision ?? 0);
+    if (changed && (provider.status === "INIT" || provider.status === current.providerStatus)) return this.summary(current);
     const bankMatches = (provider.accountNumber === undefined || provider.accountNumber === record.order.accountNumber)
       && (provider.bank === undefined || provider.bank === record.order.bank)
       && (provider.accountName === undefined || provider.accountName === record.order.accountName);
@@ -101,8 +107,7 @@ export class FundingService {
       this.store.saveFunding(record, previous);
       throw new OfframpError("FUNDING_ORDER_CHANGED", "PAJ returned different funding payment or receiving-wallet details. Reconcile this order; do not pay or create a replacement.");
     }
-    const current = this.load(id);
-    if (["provider_completed", "failed"].includes(current.state)) return this.summary(current);
+    if (provider.status === "INIT" && current.providerStatus === "PROCESSING") return this.summary(current);
     const previous = current.state;
     current.providerStatus = provider.status;
     current.state = provider.status === "COMPLETED" ? "provider_completed" : provider.status === "ERROR" ? "failed" : provider.status === "PROCESSING" ? "processing" : "awaiting_fiat";

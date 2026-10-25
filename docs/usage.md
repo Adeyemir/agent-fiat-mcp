@@ -38,7 +38,7 @@ PAJ's settled receipt can replace the original funding address with the sender a
 
 `npm run doctor` reports configuration presence and Circle version without printing credentials or submitting anything.
 
-`npm run provider:check` reads v2 rates, active chains and banks, then checks the configured Circle wallet and optional Arc Gateway deposit balance. Gateway is not part of the direct payout route. This command does not register banks, create orders or transfer funds. The same operation is available as `get_readiness`.
+`npm run provider:check` reads v2 rates, active chains and banks, verifies that the configured address belongs to the authenticated Circle agent wallets on the selected chain, then reads its wallet and optional Arc Gateway deposit balance. A readable balance alone does not establish ownership. Gateway is not part of the direct payout route. This command does not register banks, create orders or transfer funds. The same operation is available as `get_readiness`.
 
 `livePayoutsAvailable` reports that the configured checks passed. The runtime's `livePayoutsVerified: false` and `remainingVerification` flags are conservative: readiness checks neither run a payout nor ingest recipient confirmations. The [first live test](live-integration.md#verification-evidence) completed with a matching Circle/PAJ receipt and the recipient's confirmation of bank credit. That manual evidence is recorded separately from automated verification flags.
 
@@ -100,5 +100,7 @@ The reusable `PayoutService` implements the simulated/generic lifecycle. Real PA
 `prepare_funding` takes `amountNgn` as positive decimal text with at most two decimals. It prepares PAJ bank instructions for the configured, authenticated Arc mainnet wallet. The person reviews and pays the exact amount from their banking app; the tool never debits fiat. `funding_status` takes the returned `fundingId`, and `funding_history` lists the latest local records with bank numbers masked.
 
 CLI equivalents are `npm start -- fund 5000`, `npm start -- funding-status YOUR_FUNDING_ID`, and `npm start -- funding-history`. Reuse the same private environment, API key, wallet and data directory. An uncertain create request is retained and blocked from automatic retry. Existing active instructions are refreshed before reuse; expired, changed or processing instructions are not returned as payable bank details. Reconcile missing or changed provider records rather than paying again.
+
+Once processing has been observed, a later `INIT` response cannot restore payable bank details. Versioned local updates also prevent overlapping status checks from overwriting newer progress or reconciliation results. Existing records without a version remain compatible.
 
 Funding records are stored alongside existing payouts in a separate `funding_orders` table. The legacy data directory and OFFRAMP_* settings remain supported after the project rename. PAJ COMPLETED is reported as `provider_completed`; `walletCreditIndependentlyVerified` stays false. Read the actual wallet balance separately with `get_balance`. The [first live funding test](live-integration.md#onramp-2026-10-25) confirmed a 1 USDC credit using separate Circle balance and Arc receipt checks; the status tool does not perform those independent checks itself.

@@ -95,7 +95,7 @@ The bank's exact send/confirmation timestamp and PAJ's bank-notification timesta
 
 Readiness checks do not run transactions or ingest this test record. Payout status does not query bank credit, and funding status alone does not independently verify wallet credit. Historical test evidence therefore does not change `livePayoutsVerified`, `liveFundingVerified`, `bankPaid`, `bankCreditIndependentlyVerified` or `walletCreditIndependentlyVerified` in automated responses. Each new payment still needs its own approval and settlement checks.
 
-The most recent automated suite passed **84 of 84 tests** before this live funding run. Those tests use controlled wallet/provider responses and move no funds; the live evidence above is recorded separately.
+Before this live funding run, the automated suite passed **84 of 84 tests**. Subsequent regression coverage includes overlapping funding-status responses, provider status regression, compatibility with existing records and wallet ownership during readiness checks. Automated tests use controlled wallet/provider responses and move no funds; the live evidence above is recorded separately.
 
 ## Funding the agent wallet
 

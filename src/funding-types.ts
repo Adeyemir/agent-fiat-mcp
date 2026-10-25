@@ -4,6 +4,7 @@ export type FundingState = "creating" | "creation_uncertain" | "awaiting_fiat" |
 
 export interface FundingOrder {
   id: string;
+  revision?: number;
   walletKey: string;
   walletAddress: string;
   amountNgn: string;

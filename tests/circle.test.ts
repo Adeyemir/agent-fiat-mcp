@@ -14,8 +14,9 @@ import { Store } from "../src/store.js";
 const address = "0x1111111111111111111111111111111111111111";
 const token = { name: "USDC", symbol: "USDC", blockchain: "ARC", decimals: 6, isNative: false, tokenAddress: "0x3600000000000000000000000000000000000000" };
 const balance = { amount: "1.358872", token };
+const ownedWallet = { type: "agent", blockchain: "ARC", address };
 
-function fakeCircle(t: test.TestContext, version = "1.2.1", fail = false, response: unknown = { data: { signature: "0x1234abcd" } }) {
+function fakeCircle(t: test.TestContext, version = "1.2.1", fail = false, response: unknown = { data: { signature: "0x1234abcd" } }, wallets: unknown[] = []) {
   const dir = mkdtempSync(join(tmpdir(), "offramp-fake-cli-"));
   const binary = join(dir, "circle.mjs");
   const log = join(dir, "args.json");
@@ -25,6 +26,7 @@ const args = process.argv.slice(2);
 if (args[0] === '--version') { console.log(${JSON.stringify(version)}); process.exit(0); }
 writeFileSync(${JSON.stringify(log)}, JSON.stringify(args));
 if (${fail}) { console.error('test-secret-never-return'); process.exit(1); }
+if (args[0] === 'wallet' && args[1] === 'list') { console.log(JSON.stringify({ data: { wallets: ${JSON.stringify(wallets)} } })); process.exit(0); }
 console.log(JSON.stringify(${JSON.stringify(response)}));
 `);
   chmodSync(binary, 0o700);
@@ -108,7 +110,7 @@ test("Arc balance checks refuse duplicate views, other networks and malformed am
 });
 
 test("readiness separates real wallet and Arc Gateway balances without enabling demo payments to spend them", async t => {
-  const { binary } = fakeCircle(t, "1.2.2", false, { data: { balances: [balance] } });
+  const { binary } = fakeCircle(t, "1.2.2", false, { data: { balances: [balance] } }, [ownedWallet]);
   const request: JsonRequest = async (url, options = {}) => {
     assert.equal(new Headers(options.headers).has("Authorization"), false);
     if (url.endsWith("/v1/balances")) {
@@ -130,7 +132,7 @@ test("readiness separates real wallet and Arc Gateway balances without enabling 
 });
 
 test("a failed Gateway balance read preserves the successful wallet check", async t => {
-  const { binary } = fakeCircle(t, "1.2.2", false, { data: { balances: [balance] } });
+  const { binary } = fakeCircle(t, "1.2.2", false, { data: { balances: [balance] } }, [ownedWallet]);
   const request: JsonRequest = async url => {
     if (url.endsWith("/v1/balances")) throw new Error("fake-private-response");
     if (url.endsWith("/v1/info")) return { domains: [] };
@@ -141,6 +143,50 @@ test("a failed Gateway balance read preserves the successful wallet check", asyn
   assert.equal(result.source.circle.result.walletUsdc, "1.358872");
   assert.equal(result.source.circle.result.gatewayArcUsdc.ok, false);
   assert.equal(JSON.stringify(result).includes("fake-private-response"), false);
+});
+
+test("readiness rejects readable addresses outside the authenticated Arc agent wallets", async t => {
+  const request: JsonRequest = async url => {
+    if (url.endsWith("/chains")) return [{ chain: "ARC", name: "Arc", isActive: true }];
+    if (url.includes("/bank?")) return [{ id: "bank", code: "999", name: "Example Bank", country: "NG" }];
+    return {
+      offRampRate: { baseCurrency: "USD", targetCurrency: "NGN", type: "offRamp", rate: 1300 },
+      onRampRate: { baseCurrency: "USD", targetCurrency: "NGN", type: "onRamp", rate: 1400 },
+    };
+  };
+  for (const wallets of [[], [{ ...ownedWallet, address: "0x2222222222222222222222222222222222222222" }], [{ ...ownedWallet, blockchain: "ARC-TESTNET" }], [{ ...ownedWallet, type: "developer" }]]) {
+    const { agent, binary, log } = fakeCircle(t, "1.2.2", false, { data: { balances: [balance] } }, wallets);
+    assert.equal(await agent.usdcBalance(), "1.358872");
+    const result = await inspectReadiness(loadConfig({ PAJ_API_KEY: "fake-key", CIRCLE_BIN: binary, CIRCLE_ARC_ADDRESS: address }), request);
+    assert.equal(result.provider.accountAccess.ok, true);
+    assert.equal(result.provider.arcOrdersAvailable, true);
+    assert.equal(result.livePayoutsAvailable, false);
+    assert.ok("ok" in result.source.circle && !result.source.circle.ok);
+    assert.equal(result.source.circle.error.code, "AGENT_WALLET_REQUIRED");
+    assert.ok(result.blockers.some(blocker => blocker.code === "WALLET_ACCESS_UNVERIFIED"));
+    assert.deepEqual(JSON.parse(readFileSync(log, "utf8")), ["wallet", "list", "--chain", "ARC", "--type", "agent", "--output", "json"]);
+  }
+});
+
+test("readiness enables the route for an owned wallet even when optional Gateway diagnostics fail", async t => {
+  const { binary } = fakeCircle(t, "1.2.2", false, { data: { balances: [balance] } }, [ownedWallet]);
+  const request: JsonRequest = async url => {
+    if (url.endsWith("/chains")) return [{ chain: "ARC", name: "Arc", isActive: true }];
+    if (url.includes("/bank?")) return [{ id: "bank", code: "999", name: "Example Bank", country: "NG" }];
+    if (url.endsWith("/v1/balances")) throw new Error("fake-private-gateway-error");
+    return {
+      offRampRate: { baseCurrency: "USD", targetCurrency: "NGN", type: "offRamp", rate: 1300 },
+      onRampRate: { baseCurrency: "USD", targetCurrency: "NGN", type: "onRamp", rate: 1400 },
+    };
+  };
+  const result = await inspectReadiness(loadConfig({ PAJ_API_KEY: "fake-key", CIRCLE_BIN: binary, CIRCLE_ARC_ADDRESS: address }), request);
+  assert.equal(result.livePayoutsAvailable, true);
+  assert.ok("ok" in result.source.circle && result.source.circle.ok);
+  assert.equal(result.source.circle.result.walletAuthenticated, true);
+  assert.equal(result.source.circle.result.walletUsdc, "1.358872");
+  assert.equal(result.source.circle.result.gatewayArcUsdc.ok, false);
+  assert.deepEqual(result.blockers, []);
+  assert.equal(JSON.stringify(result).includes("fake-private-gateway-error"), false);
 });
 
 test("outdated Circle CLI is rejected before requesting a signature", async t => {

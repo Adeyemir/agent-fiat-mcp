@@ -26,6 +26,7 @@ export async function inspectReadiness(config: Config, request: JsonRequest = js
     config.arcAddress ? inspect(async () => {
       const agent = new CircleAgent(config.circleBin, config.arcAddress!, config.arcNetwork);
       const cliVersion = await agent.checkVersion();
+      await agent.requireAgentWallet();
       const [walletUsdc, gatewayArcUsdc] = await Promise.all([agent.usdcBalance(), inspect(() => arcGatewayBalance(agent.address, config.arcNetwork, request))]);
       return { cliVersion, walletAuthenticated: true, sourceNetwork: config.arcNetwork, walletUsdc, gatewayArcUsdc, diagnosticOnly: true, simulated: false };
     }) : Promise.resolve({ checked: false as const, reason: "No Circle Agent Wallet address configured." }),
