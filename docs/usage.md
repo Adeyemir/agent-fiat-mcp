@@ -20,7 +20,7 @@
 
 ## Real MCP tools
 
-The default server exposes `get_balance`, `list_banks`, `get_default_bank`, `set_default_bank`, `get_readiness`, `prepare_payout`, `execute_payout`, `payout_status` and `payout_history`.
+The live server exposes 12 tools: `get_balance`, `list_banks`, `get_default_bank`, `set_default_bank`, `get_readiness`, `prepare_payout`, `execute_payout`, `payout_status`, `payout_history`, `prepare_funding`, `funding_status` and `funding_history`. The funding flow is described under [Local funding tools](#local-funding-tools).
 
 `get_balance` reads actual Arc USDC. `spendableUsdc: null` means the final spendable payout amount depends on an order and gas quote. Missing credentials and wallet failures produce errors without a simulated fallback.
 

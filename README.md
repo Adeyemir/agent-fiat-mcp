@@ -1,119 +1,93 @@
 # Agent Fiat MCP
 
-**Local MCP and CLI tooling for funding your Circle Agent Wallet with naira and paying Nigerian bank accounts using USDC on Arc.**
+**Pay people in naira from the Circle Agent Wallet your agent already uses. Fund that same wallet with naira.**
 
-## The problem it solves
+Your agent can pay for APIs and other agents' services in USDC. But a freelancer, supplier or local business may need naira in a bank account.
 
-An agent can already use USDC to pay other agents, APIs and online tools. But paying a person or a business for real-world services often requires naira in a Nigerian bank account.
+Agent Fiat MCP connects the two. Your agent verifies the recipient, prepares the payment and asks for your approval. Circle sends USDC from your existing wallet on Arc, and PAJ converts it into a naira bank payment. The recipient receives naira in their account.
 
-Agent Fiat MCP connects those payments to the Circle Agent Wallet the agent already uses. It lets a local agent verify a recipient, show the estimated payment costs, request human approval and pay from its USDC balance on Arc through PAJ.
+Funding works in the other direction: request bank details, transfer naira from your banking app, and PAJ delivers USDC to that same agent wallet.
 
-> “Pay this supplier ₦5,000 from my Circle Agent Wallet. Here are their bank details.”
+## What you can do
 
-The recipient receives a bank payment; they do not need to accept USDC. In the other direction, you can request PAJ bank instructions, pay naira from your banking app and receive USDC in your existing Arc agent wallet.
+| Action | Money flow | Current status |
+| --- | --- | --- |
+| **Pay someone** | Agent wallet USDC on Arc → PAJ → Nigerian bank account | Tested live; the recipient confirmed bank receipt. |
+| **Fund your wallet** | Naira bank transfer → PAJ → USDC in your existing Arc agent wallet | Implemented; awaiting the first live bank-funding test. |
 
-## Local developer scope
+Once connected to a local agent, you can ask:
 
-This is a developer-only tool. Run this checkout on a computer or developer-managed terminal environment with access to its own Circle CLI session, private configuration and payout database. It connects directly to PAJ using the developer's Business API key. Offramping has recipient-confirmed live evidence. The local onramp workflow has controlled test coverage but has not yet been verified with a live bank payment.
+> “Pay this freelancer ₦5,000 from my agent wallet. Here are their bank details.”
 
-**Web/mobile browser connectors are unsupported.** This version has no HTTP MCP endpoint, hosted wallet connection, OAuth callback, browser approval page or browser compatibility probe. A web or mobile chat does not inherit the local Circle session.
+Review the verified recipient and estimated costs, then approve before the agent sends USDC. You can pay a one-off recipient or save a default.
 
-## Requirements
+> “Prepare bank details to add ₦5,000 to my agent wallet.”
 
-- Node.js 22.13 or newer and npm.
-- Circle CLI 1.2.1 or newer, already authenticated to the existing Circle Agent Wallet.
-- The existing agent wallet's Arc address.
-- A PAJ production Business API key for bank tools and live payouts.
-- Network access to Circle and PAJ. Live preparation requires Arc mainnet and PAJ production.
+The agent returns the bank account, exact naira amount, estimated USDC, receiving wallet and expiry. You review the details and make the transfer yourself in your banking app.
 
-Reuse the existing Circle executable, login and wallet. This project does not install Circle CLI, accept its Terms, log in or create wallets for you. Do not put login codes or private keys in this repository.
+## Where it runs
 
-## Install and configure locally
+This is a **local developer tool**. It gives a compatible AI client payment tools through MCP, or you can use its CLI directly. It uses your existing Circle CLI session and your own PAJ Business API key.
 
-### Existing npm release
+**Web/mobile browser connectors are unsupported.** A web chat does not inherit your local wallet session. The supported route today is Nigerian naira ↔ USDC on Arc mainnet.
 
-The published package is still naira-offramp-mcp@0.3.0 and provides the earlier offramp-only implementation. The renamed agent-fiat-mcp package and the funding tools in this checkout have not been published to npm. Use the source setup below for the new funding workflow.
+For MCP payouts, the client must support human approval forms (MCP form elicitation). Otherwise, approve in an interactive terminal. Funding requires you to make the bank transfer yourself; the tool does not debit your bank account.
 
-For the existing published package, in a local project directory:
+## Get started
 
-~~~sh
-npm install naira-offramp-mcp@0.3.0
-cp -n node_modules/naira-offramp-mcp/.env.example .env
-chmod 600 .env
-~~~
+You need:
 
-Configure the private .env file as shown below. Use the installed node_modules/naira-offramp-mcp/dist/cli.js file as the server entry point. The npm run/start commands in this guide refer to a source checkout.
+- Node.js 22.13+ and npm.
+- Circle CLI 1.2.1+ with an authenticated Circle Agent Wallet and its Arc mainnet address.
+- A production Business API key from the [PAJ developer dashboard](https://developer.paj.cash/).
+- Network access to Circle and PAJ. Payouts also need USDC in the Arc wallet.
 
-### Build from source
+Reuse your existing Circle installation, login and wallet. This tool uses that session; it does not manage wallet login or creation.
 
-~~~sh
+### 1. Build the project
+
+```sh
 git clone https://github.com/Adeyemir/agent-fiat-mcp.git
 cd agent-fiat-mcp
 npm ci
 npm run build
 cp -n .env.example .env
 chmod 600 .env
-~~~
+```
 
-The copy command preserves an existing .env file. Configure the required values privately in that file:
+The copy command preserves an existing `.env`. Use this source checkout for both payment and funding tools; the renamed package has not yet been published to npm.
 
-~~~dotenv
-OFFRAMP_MODE=live
-CIRCLE_BIN=circle
+### 2. Configure your wallet and PAJ access
+
+Set these values privately in `.env`:
+
+```dotenv
 CIRCLE_ARC_ADDRESS=your_existing_arc_agent_wallet_address
+PAJ_API_KEY=your_private_paj_business_api_key
+CIRCLE_BIN=circle
 ARC_NETWORK=mainnet
 PAJ_ENVIRONMENT=production
-PAJ_API_KEY=your_private_paj_business_api_key
-~~~
+OFFRAMP_MODE=live
+```
 
-Use an absolute CIRCLE_BIN path if the authenticated executable is not available on the MCP client's PATH. Obtain PAJ credentials from the [PAJ developer dashboard](https://developer.paj.cash/).
+`CIRCLE_ARC_ADDRESS` and `PAJ_API_KEY` are required for the live flows. Use an absolute `CIRCLE_BIN` path if your agent cannot find the authenticated executable on its `PATH`.
 
-### Environment variables
+**No Circle API key or Entity Secret is used.** Circle authenticates through its CLI session; PAJ uses the Business API key, without email/OTP login. Keep credentials in local configuration, outside prompts and version control. The MCP client supplies the model, so no LLM API key is needed.
 
-| Variable | Required / default | Purpose |
-| --- | --- | --- |
-| CIRCLE_ARC_ADDRESS | Required for wallet access and live payouts | Existing Circle Agent Wallet address on Arc. |
-| CIRCLE_BIN | Default: circle | Path to the existing authenticated Circle CLI executable. |
-| PAJ_API_KEY | Required for PAJ bank tools and live payouts | Private PAJ Business API key, sent as x-api-key. |
-| PAJ_ENVIRONMENT | Default: production | Live PAJ v2 operations require production; staging is refused. |
-| ARC_NETWORK | Default: mainnet | Live PAJ preparation requires mainnet; testnet cannot fund production orders. |
-| OFFRAMP_MODE | Default: live | Use live account tools. The optional demo mode is isolated simulation. |
-| OFFRAMP_DATA_DIR | Default: ~/.local/share/naira-offramp-mcp | Local payout and recipient database directory. Use the same directory across restarts and approval. The legacy default is preserved after the rename. |
-| OFFRAMP_MAX_USDC | Default: 100 | Local prepared-payment budget limit, checked with estimated gas. |
-| OFFRAMP_NETWORK_FEE_RESERVE_USDC | Default: 0.05 | USDC retained for estimated Arc gas when budgeting a payout. |
+### 3. Check the connection
 
-**Circle API keys and Entity Secret are not used by this implementation.** Wallet access comes from the existing Circle Agent Wallet CLI session. There are no Circle API-key or Entity-Secret environment variables to configure here. PAJ email/OTP login and legacy PAJ session tokens are also unused; PAJ v2 uses the Business API key directly.
-
-This source checkout uses the local implementation and requires your own PAJ Business API key. It reads process environment variables and the .env file passed to Node. It does not automatically load the provider.env profile or use the hosted PAJ service from the 0.2.x releases. Preserve existing profile files and payout history; do not delete or overwrite them during setup.
-
-## Read-only diagnostics
-
-~~~sh
+```sh
 npm run doctor
 npm run provider:check
-~~~
+```
 
-Doctor reports local configuration and the Circle CLI version without printing credentials. Provider checks read rates, active chains, bank-directory access, the configured Circle wallet and optional Gateway balance. They do not register recipients, create payment orders or send USDC. Gateway balance is diagnostic only; direct Arc payouts do not require a Gateway deposit.
+These read-only checks inspect configuration, wallet access, PAJ rates, banks and Arc availability. They create no orders and move no money. Gateway balance is an optional diagnostic; this route needs no Gateway deposit.
 
-## Run the local MCP server over stdio
+### 4. Connect your local agent
 
-Build first, then launch the server through a local MCP client. Replace both absolute paths:
+Use your client's documented local stdio MCP configuration. For clients using `mcpServers`, merge this entry with existing servers and replace the absolute paths:
 
-~~~sh
-node --env-file=/absolute/path/agent-fiat-mcp/.env /absolute/path/agent-fiat-mcp/dist/cli.js serve
-~~~
-
-For an npm installation, use the installed entry point instead:
-
-~~~sh
-node --env-file=/absolute/path/to/.env /absolute/path/to/node_modules/naira-offramp-mcp/dist/cli.js serve
-~~~
-
-The same Node command runs CLI operations when serve is replaced with doctor, provider-check, set-bank, quote 1000 NGN or approve YOUR_PREPARED_PAYOUT_ID.
-
-A local stdio MCP configuration can use:
-
-~~~json
+```json
 {
   "mcpServers": {
     "agent-fiat": {
@@ -126,92 +100,90 @@ A local stdio MCP configuration can use:
     }
   }
 }
-~~~
+```
 
-Merge the entry into the client's existing configuration; preserve unrelated servers. Reconnect the client and verify its tools. The MCP client supplies the model, so this project does not require an LLM API key.
+Reload the client and confirm that the tools appear. Ask the agent to check readiness and your Arc USDC balance, then check payment approval support separately. A saved configuration alone does not confirm a working connection.
 
-For terminal development, npm start runs the same stdio server and npm run dev runs its TypeScript entry point. The server waits for MCP protocol input; it is not an HTTP or browser service.
+The underlying server command is:
 
-### Local tools
+```sh
+node --env-file=/absolute/path/agent-fiat-mcp/.env /absolute/path/agent-fiat-mcp/dist/cli.js serve
+```
 
-| Tool | Purpose |
+It communicates through stdio and waits for the MCP client. There is no browser URL to open.
+
+The live server exposes 12 tools:
+
+| Purpose | Tools |
 | --- | --- |
-| get_balance | Read the configured Arc agent wallet's actual USDC balance. |
-| list_banks | Read PAJ's Nigerian bank directory. |
-| get_default_bank | Inspect the optional locally saved recipient. |
-| set_default_bank | Verify the bank account and holder name, then request human approval to save it locally. |
-| get_readiness | Inspect PAJ, Arc and wallet readiness without creating an order. |
-| prepare_payout | Create an unfunded PAJ Arc order for a one-off recipient or saved default. |
-| execute_payout | Obtain human approval, revalidate the order and submit the Circle transfer once. |
-| payout_status | Inspect the existing order and match its settled receipt to the confirmed Circle transfer. |
-| payout_history | Inspect local payout history with masked account numbers. |
-| prepare_funding | Create or reuse an unfunded PAJ naira-to-USDC order for the configured Arc agent wallet. |
-| funding_status | Track the existing funding order without making another payment. |
-| funding_history | Inspect local funding records with masked bank account numbers. |
+| Wallet and readiness | `get_balance`, `get_readiness` |
+| Bank accounts | `list_banks`, `get_default_bank`, `set_default_bank` |
+| Pay someone | `prepare_payout`, `execute_payout`, `payout_status`, `payout_history` |
+| Fund your wallet | `prepare_funding`, `funding_status`, `funding_history` |
 
-Saving a recipient and executing a payment through MCP require a client with human approval forms. Tool arguments cannot grant approval. If forms are unavailable, use the interactive terminal workflow below.
+## Use the terminal
 
-## Local CLI prompts and human approval
+Run these commands from the checkout with the same `.env` and data directory throughout. **`quote` and `fund` create real, initially unfunded PAJ orders.**
 
-Use the same .env file and local data directory throughout. These commands act on real PAJ production accounts in live mode; they are not readiness checks.
+### Pay a Nigerian bank account
 
-Verify and optionally save a default recipient, then prepare an unfunded order:
+Verify and save a recipient, then prepare an estimated ₦5,000 payment:
 
-~~~sh
+```sh
 npm start -- set-bank
-npm start -- quote 1000 NGN
-~~~
+npm start -- quote 5000 NGN
+```
 
-The quote command uses the saved default. Through MCP, prepare_payout can instead use a one-off recipient without changing the default.
+The CLI uses the saved recipient. MCP also supports a one-off recipient without changing your default. Preparation sends no USDC.
 
-Review the verified recipient, indicative NGN amount, USDC transfer, estimated network fee, gas reserve and expiry. Only when you intend to pay, run:
+Review the recipient, estimated naira payout, USDC transfer, network fee, reserve and expiry. To proceed with that prepared payment:
 
-~~~sh
+```sh
 npm start -- approve YOUR_PREPARED_PAYOUT_ID
-~~~
+```
 
-The terminal displays the payment terms and requires the person to type APPROVE. Piped input and agent-supplied approval flags are refused. A missing approval mechanism must not be bypassed.
+Read the displayed terms and type `APPROVE` yourself. The terminal must be interactive; piped input and agent-supplied approval flags are refused.
 
-## Fund the existing agent wallet with naira
+### Fund the existing wallet
 
-From the source checkout:
-
-~~~sh
+```sh
 npm start -- fund 5000
+```
+
+Review the bank instructions, exact amount, receiving wallet and expiry, then pay from your banking app. The receiving address is checked against your authenticated Arc agent wallet. Track the returned funding ID:
+
+```sh
 npm start -- funding-status YOUR_FUNDING_ID
 npm start -- funding-history
-~~~
+```
 
-Through MCP, ask: **“Prepare bank instructions to fund my existing Arc agent wallet with ₦5,000.”** The tool uses the saved, authenticated Circle wallet; it does not accept an arbitrary receiving address or create a wallet.
+Preparation reuses an active funding order for the same amount. A different amount is blocked while an order is active. Pay only the current instructions returned by the tool; never reuse an expired account.
 
-Review the returned bank, account name, account number, exact naira amount, estimated USDC, receiving wallet and expiry. Make the naira transfer yourself in your banking app. The tool does not debit a bank account or send USDC. Each virtual account belongs to one order; never reuse expired instructions or send another payment to retry an uncertain result.
+## Amounts, settlement and interrupted requests
 
-Repeated preparation reuses the active order for the same amount. A different amount is blocked while an order is active. If creation times out, the local record is retained for reconciliation and no replacement is created automatically. Inspect funding_status and the PAJ dashboard before proceeding.
+- **Amounts are estimates.** PAJ applies its rate when the deposit arrives. Circle estimates gas without a hard gas cap. Approval does not lock rates or guarantee the final received amount or total wallet debit.
+- **Approval belongs to the person.** Saving a recipient and executing a payout require MCP forms or an interactive terminal. A tool argument cannot grant approval.
+- **Delivery needs confirmation.** PAJ completion reports provider settlement. Bank receipt and wallet credit need separate confirmation. See the [live payout evidence](docs/live-integration.md#verification-evidence); after funding, inspect the wallet with `get_balance`.
+- **Keep uncertain requests for investigation.** Check the existing ID with `payout_status` or `funding_status`. Do not send again, create a replacement or delete the database to retry. Errors do not establish refunds.
 
-Use funding_status to track INIT, PROCESSING, COMPLETED or ERROR. PAJ completion is provider-reported USDC delivery; walletCreditIndependentlyVerified remains false. Check get_balance separately to inspect the actual Arc wallet balance. Failed or mismatched orders do not imply a refund, and must be reconciled before paying again.
+See [usage and recovery](docs/usage.md) and [PAJ setup and settlement](docs/provider-setup.md) for the detailed behavior.
 
-The existing OFFRAMP_* settings and private data directory remain compatible. Funding records are added alongside the payout history; the rename does not migrate or delete existing records. This is a local polling workflow with no browser connector or webhook server.
+## Configuration and existing installations
 
-## Settlement and recovery
+Optional settings for the data directory, payout budget and gas reserve are in the [configuration reference](docs/usage.md#configuration).
 
-Each payment uses a fresh PAJ Arc order address. The standing Solana address returned by bank registration is not used for Arc payouts. The recipient can be someone other than the wallet owner.
+The rename preserves `OFFRAMP_*` settings and the default `~/.local/share/naira-offramp-mcp` data directory. Keep your existing recipients, history and private profile files. Configuration comes from the process environment and the `.env` passed to Node; older `provider.env` files are not loaded automatically.
 
-NGN amounts and gas are estimates. PAJ applies its rate when it observes the deposit, and Circle CLI does not enforce a hard gas cap. Local approval expires within at most five minutes and does not lock the exchange rate.
+The existing npm release, `naira-offramp-mcp@0.3.0`, contains the earlier payout-only implementation. It does not include the funding tools in this checkout.
 
-The code checks order identity, source wallet, destination, token, chain and amount, and persists submission before transferring. Ambiguous transfers are retained for reconciliation and never automatically resent.
+## Development
 
-A completed PAJ receipt must match the confirmed Circle transfer. Provider completion and independent bank-credit confirmation remain separate: the MCP does not query the recipient's bank balance.
-
-The first live payout has recipient-confirmed bank credit recorded in [verification evidence](docs/live-integration.md). See [provider setup](docs/provider-setup.md) and [usage and recovery](docs/usage.md) for the detailed local workflow.
-
-## Development checks
-
-~~~sh
+```sh
 npm run check
 npm run build
 npm test
-~~~
+```
 
-Tests use fake provider/wallet responses and temporary databases. They do not use a real Circle session or move funds. npm run demo explicitly exercises the simulator in an isolated temporary directory; normal startup remains live mode.
+Tests use fake wallet/provider responses and temporary databases; they move no funds. `npm run demo` runs the payout simulator in an isolated temporary profile. Normal startup uses live mode.
 
-[Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)
+[Integration evidence](docs/live-integration.md) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)
