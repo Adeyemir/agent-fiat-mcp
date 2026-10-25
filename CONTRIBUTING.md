@@ -1,6 +1,6 @@
 # Contributing to Agent Fiat MCP
 
-Start with Node.js 22.13+, `npm ci`, and the commands in the README. Keep changes focused on local Circle Agent Wallet funding and naira payouts on Arc. Offramping has live recipient confirmation; onramping still requires a live funding test.
+Start with Node.js 22.13+, `npm ci`, and the commands in the README. Keep changes focused on local Circle Agent Wallet funding and naira payouts on Arc. Both directions have [live verification evidence](docs/live-integration.md): recipient-confirmed bank receipt for payouts, and separate wallet-balance and Arc receipt checks for funding. New changes still need verification appropriate to their scope.
 
 The core interfaces are in `src/types.ts`:
 

@@ -13,7 +13,9 @@ Funding works in the other direction: request bank details, transfer naira from 
 | Action | Money flow | Current status |
 | --- | --- | --- |
 | **Pay someone** | Agent wallet USDC on Arc → PAJ → Nigerian bank account | Tested live; the recipient confirmed bank receipt. |
-| **Fund your wallet** | Naira bank transfer → PAJ → USDC in your existing Arc agent wallet | Implemented; awaiting the first live bank-funding test. |
+| **Fund your wallet** | Naira bank transfer → PAJ → USDC in your existing Arc agent wallet | Tested live; 1 USDC credited to the existing wallet on 25 October 2026. |
+
+Both directions have now been tested end to end with real funds on Arc mainnet. The latest funding test converted **₦1,391.68 into 1 USDC**, confirmed through PAJ, the wallet balance and the Arc transaction receipt. See the [verification record and observed timing](docs/live-integration.md#onramp-2026-10-25) for the test scope and measurements.
 
 Once connected to a local agent, you can ask:
 
@@ -163,7 +165,7 @@ Preparation reuses an active funding order for the same amount. A different amou
 
 - **Amounts are estimates.** PAJ applies its rate when the deposit arrives. Circle estimates gas without a hard gas cap. Approval does not lock rates or guarantee the final received amount or total wallet debit.
 - **Approval belongs to the person.** Saving a recipient and executing a payout require MCP forms or an interactive terminal. A tool argument cannot grant approval.
-- **Delivery needs confirmation.** PAJ completion reports provider settlement. Bank receipt and wallet credit need separate confirmation. See the [live payout evidence](docs/live-integration.md#verification-evidence); after funding, inspect the wallet with `get_balance`.
+- **Delivery needs confirmation.** PAJ completion reports provider settlement. Bank receipt and wallet credit need separate confirmation. See the [live payment and funding evidence](docs/live-integration.md#verification-evidence); after funding, inspect the wallet with `get_balance`.
 - **Keep uncertain requests for investigation.** Check the existing ID with `payout_status` or `funding_status`. Do not send again, create a replacement or delete the database to retry. Errors do not establish refunds.
 
 See [usage and recovery](docs/usage.md) and [PAJ setup and settlement](docs/provider-setup.md) for the detailed behavior.
