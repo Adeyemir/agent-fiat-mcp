@@ -56,6 +56,38 @@ To **fund the wallet**, you need naira in your bank account. The tool returns ba
 
 **Web/mobile browser connectors are unsupported.** A normal web chat alone cannot run this server or access your local wallet session.
 
+## Setup prompt
+
+Copy this into a local coding agent with terminal access and access to the repository:
+
+```text
+Set up Agent Fiat MCP for this local AI client:
+https://github.com/Adeyemir/agent-fiat-mcp
+
+Read the README. Reuse an existing checkout or clone and build the source.
+Check the required Node.js and Circle CLI versions; report missing prerequisites.
+
+Reuse my existing Circle CLI, login and Arc mainnet agent wallet. Do not
+reinstall or upgrade Circle, log out, restart login or create a wallet.
+Preserve existing .env files, MCP servers, recipients and payment history.
+
+Help me configure my own PAJ_API_KEY privately in the local .env file.
+Never ask me to paste credentials into chat or print their values.
+Verify that CIRCLE_ARC_ADDRESS belongs to my authenticated Arc agent wallet.
+
+Run the documented read-only doctor and provider checks. If this client
+supports local stdio MCP, register the server using its documented settings
+and absolute paths. Confirm that all 12 tools actually load. If a reload is
+needed, report "configured; reload required", not "connected". If local MCP
+is unsupported, report CLI readiness and any blockers.
+
+Report payment approval support separately: supported, unsupported or
+unverified. If MCP approval forms are unavailable, explain terminal approval.
+
+Do not register bank accounts, create payout or funding orders, transfer
+money, or use simulated results to claim live readiness during setup.
+```
+
 ## Get started
 
 Reuse your existing Circle installation, login and wallet. This tool uses that session; it does not manage wallet login or creation.
