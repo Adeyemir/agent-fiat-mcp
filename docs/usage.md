@@ -94,3 +94,11 @@ OFFRAMP_MODE=demo npm start
 Only the simulator accepts Demo Bank / 0000000000 / DEMO USER and creates a fabricated 100 USDC ledger. `npm run demo` uses an isolated temporary profile. No real wallet is debited. Simulated ledger debits otherwise survive restarts in their separate profile.
 
 The reusable `PayoutService` implements the simulated/generic lifecycle. Real PAJ v2 payout behavior lives in `LiveService`. Embedded applications must supply a trusted human approval callback; unconditional approval is suitable only for isolated simulation and tests.
+
+## Local funding tools
+
+`prepare_funding` takes `amountNgn` as positive decimal text with at most two decimals. It prepares PAJ bank instructions for the configured, authenticated Arc mainnet wallet. The person reviews and pays the exact amount from their banking app; the tool never debits fiat. `funding_status` takes the returned `fundingId`, and `funding_history` lists the latest local records with bank numbers masked.
+
+CLI equivalents are `npm start -- fund 5000`, `npm start -- funding-status YOUR_FUNDING_ID`, and `npm start -- funding-history`. Reuse the same private environment, API key, wallet and data directory. An uncertain create request is retained and blocked from automatic retry. Existing active instructions are refreshed before reuse; expired, changed or processing instructions are not returned as payable bank details. Reconcile missing or changed provider records rather than paying again.
+
+Funding records are stored alongside existing payouts in a separate `funding_orders` table. The legacy data directory and OFFRAMP_* settings remain supported after the project rename. PAJ COMPLETED is reported as `provider_completed`; `walletCreditIndependentlyVerified` stays false. Read the actual wallet balance separately with `get_balance`. Live fiat funding has not yet been verified.

@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { BankAccount, Payout, PayoutState } from "./types.js";
 import { requireThat } from "./errors.js";
 import type { LivePayout, LivePayoutState } from "./live-types.js";
+import type { FundingOrder, FundingState } from "./funding-types.js";
 
 export class Store {
   private readonly db: DatabaseSync;
@@ -14,6 +15,7 @@ export class Store {
     if (path !== ":memory:") chmodSync(path, 0o600);
     this.db.exec("PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payouts (id TEXT PRIMARY KEY, mode TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL)");
     this.db.exec("CREATE TABLE IF NOT EXISTS live_payouts (id TEXT PRIMARY KEY, state TEXT NOT NULL, data TEXT NOT NULL)");
+    this.db.exec("CREATE TABLE IF NOT EXISTS funding_orders (id TEXT PRIMARY KEY, wallet_key TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL); CREATE INDEX IF NOT EXISTS funding_wallet ON funding_orders(wallet_key)");
   }
   initialiseDemo() {
     this.db.exec("CREATE TABLE IF NOT EXISTS demo_transfers (id TEXT PRIMARY KEY, order_id TEXT UNIQUE NOT NULL, units TEXT NOT NULL)");
@@ -62,6 +64,24 @@ export class Store {
   }
   recentLive(): LivePayout[] {
     return this.db.prepare("SELECT data FROM live_payouts ORDER BY rowid DESC LIMIT 10").all().map(row => JSON.parse(String(row.data)) as LivePayout);
+  }
+  insertFunding(order: FundingOrder): boolean {
+    return this.db.prepare("INSERT OR IGNORE INTO funding_orders(id,wallet_key,state,data) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM funding_orders WHERE wallet_key=? AND state IN ('creating','creation_uncertain','awaiting_fiat','processing','reconciliation_required'))").run(order.id, order.walletKey, order.state, JSON.stringify(order), order.walletKey).changes === 1;
+  }
+  funding(id: string): FundingOrder {
+    const row = this.db.prepare("SELECT data FROM funding_orders WHERE id=?").get(id);
+    requireThat(row, "FUNDING_NOT_FOUND", "No funding order with that ID exists in this local profile.");
+    return JSON.parse(String(row.data)) as FundingOrder;
+  }
+  activeFunding(walletKey: string): FundingOrder | undefined {
+    const row = this.db.prepare("SELECT data FROM funding_orders WHERE wallet_key=? AND state IN ('creating','creation_uncertain','awaiting_fiat','processing','reconciliation_required') ORDER BY rowid DESC LIMIT 1").get(walletKey);
+    return row ? JSON.parse(String(row.data)) as FundingOrder : undefined;
+  }
+  saveFunding(order: FundingOrder, expected: FundingState): boolean {
+    return this.db.prepare("UPDATE funding_orders SET state=?,data=? WHERE id=? AND state=?").run(order.state, JSON.stringify(order), order.id, expected).changes === 1;
+  }
+  recentFunding(walletKey: string): FundingOrder[] {
+    return this.db.prepare("SELECT data FROM funding_orders WHERE wallet_key=? ORDER BY rowid DESC LIMIT 10").all(walletKey).map(row => JSON.parse(String(row.data)) as FundingOrder);
   }
   demoBalance(): bigint {
     return BigInt(String(this.db.prepare("SELECT value FROM settings WHERE key='demo_balance'").get()!.value));

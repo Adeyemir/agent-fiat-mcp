@@ -54,4 +54,4 @@ The runtime's verification flags remain conservative: readiness checks do not ru
 
 ## Funding the agent wallet
 
-PAJ also documents [fiat onramp orders](https://docs.paj.cash/concepts/onramp) delivering USDC to a recipient on Arc. The raw client implements Arc/Base onramp requests and checks the live active-chain flag. It does not expose onramping as an MCP tool yet, and no fiat purchase has been tested. A Base route must not be assumed available while its live flag is inactive.
+PAJ also documents [fiat onramp orders](https://docs.paj.cash/concepts/onramp) delivering USDC to a recipient on Arc. The raw client implements Arc/Base onramp requests and checks the live active-chain flag. The local funding workflow exposes prepare_funding, funding_status and funding_history for the configured Arc mainnet agent wallet. It returns a one-time bank account for the user to pay manually, persists uncertain creation and never automatically creates a replacement. Controlled tests cover this flow; no fiat purchase has been live-tested. A Base route must not be assumed available while its live flag is inactive.

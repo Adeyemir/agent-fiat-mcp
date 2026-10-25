@@ -1,13 +1,14 @@
 {
-  "name": "naira-offramp-mcp",
+  "name": "agent-fiat-mcp",
   "version": "0.3.0",
-  "description": "A local MCP server and CLI for paying Nigerian bank accounts using Circle Agent Wallet USDC on Arc.",
+  "description": "Local MCP and CLI tooling for naira funding and payments through Circle Agent Wallet USDC on Arc.",
   "type": "module",
   "license": "MIT",
   "engines": {
     "node": ">=22.13.0"
   },
   "bin": {
+    "agent-fiat-mcp": "dist/cli.js",
     "naira-offramp-mcp": "dist/cli.js"
   },
   "exports": {
@@ -48,6 +49,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Adeyemir/naira-offramp-mcp.git"
+    "url": "git+https://github.com/Adeyemir/agent-fiat-mcp.git"
   }
 }

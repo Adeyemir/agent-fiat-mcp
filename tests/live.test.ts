@@ -130,7 +130,7 @@ test("the default stdio server exposes real tools and requires wallet setup inst
   const client = new Client({ name: "default-stdio-test", version: "1" }, { capabilities: {} });
   await client.connect(new StdioClientTransport({ command: process.execPath, args: ["--import", "tsx", "src/cli.ts"], env: { ...env, OFFRAMP_DATA_DIR: dir }, stderr: "pipe" }));
   try {
-    assert.deepEqual((await client.listTools()).tools.map(tool => tool.name).sort(), toolNames);
+    assert.deepEqual((await client.listTools()).tools.map(tool => tool.name).sort(), [...toolNames, "prepare_funding", "funding_status", "funding_history"].sort());
     assert.equal(data(await client.callTool({ name: "get_balance", arguments: {} })).error?.code, "WALLET_SETUP_REQUIRED");
   } finally { await client.close(); }
 });

@@ -1,5 +1,7 @@
 export { PayoutService } from "./service.js";
 export { LiveService } from "./live-service.js";
+export { FundingService } from "./funding-service.js";
+export type { FundingWallet } from "./funding-service.js";
 export { Store } from "./store.js";
 export { createMcpServer } from "./mcp.js";
 export { createRuntime } from "./runtime.js";
@@ -12,3 +14,4 @@ export type { PajEnvironment, PajChain, PajBank, PajOrder, PajChainInfo } from "
 export { inspectReadiness } from "./readiness.js";
 export type * from "./types.js";
 export type * from "./live-types.js";
+export type * from "./funding-types.js";

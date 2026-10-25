@@ -39,6 +39,17 @@ async function main() {
     requireThat(payoutId === undefined, "INVALID_COMMAND", "provider-login takes no arguments. Credentials belong in your private local environment.");
     return providerLogin(loadConfig());
   }
+  if (command === "fund" || command === "funding-status" || command === "funding-history") {
+    requireThat(extra.length === 0 && (command === "funding-history" ? payoutId === undefined : Boolean(payoutId)), "INVALID_COMMAND", "Use fund <amount-ngn>, funding-status <funding-id>, or funding-history.");
+    if (command === "funding-status") requireThat(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payoutId!), "INVALID_COMMAND", "Use the local funding ID returned by fund.");
+    const runtime = createRuntime();
+    try {
+      requireThat(runtime.funding, "FUNDING_UNAVAILABLE", "Naira funding is available only in live mode for the existing Arc mainnet agent wallet.");
+      const response = command === "fund" ? await runtime.funding.prepare({ amountNgn: payoutId! }) : command === "funding-status" ? await runtime.funding.status(payoutId!) : runtime.funding.history();
+      console.log(JSON.stringify(response, null, 2));
+    } finally { runtime.close(); }
+    return;
+  }
   if (command === "quote") {
     requireThat(payoutId && extra.length === 1 && (extra[0] === "NGN" || extra[0] === "USDC"), "INVALID_COMMAND", "Use quote <amount> <NGN|USDC>. This prepares an order but does not send funds.");
     const runtime = createRuntime();
@@ -47,7 +58,7 @@ async function main() {
     return;
   }
   if (command === "--help" || command === "help") {
-    console.log("naira-offramp-mcp [serve | doctor | provider-check | set-bank | quote <amount> <NGN|USDC> | approve <payout-id>]\nDefault: real Circle Agent Wallet + PAJ v2 Arc payouts with human approval. NGN and network fees are estimates. OFFRAMP_MODE=demo explicitly selects simulation.");
+    console.log("agent-fiat-mcp [serve | doctor | provider-check | set-bank | quote <amount> <NGN|USDC> | approve <payout-id> | fund <amount-ngn> | funding-status <funding-id> | funding-history]\nLocal Circle Agent Wallet + PAJ v2 integration. Offramp payments require human approval. Funding returns bank instructions for a manual naira payment; it never debits a bank account. Amounts and network fees are estimates. OFFRAMP_MODE=demo explicitly selects payout simulation.");
     return;
   }
   requireThat(!command || ["serve", "set-bank", "approve"].includes(command), "INVALID_COMMAND", "Use serve, doctor, set-bank or approve <payout-id>.");
@@ -70,7 +81,7 @@ async function main() {
     return;
   }
   const runtime = createRuntime();
-  const server = createMcpServer(runtime.service, { readiness: () => inspectReadiness(runtime.config) });
+  const server = createMcpServer(runtime.service, { readiness: () => inspectReadiness(runtime.config), ...(runtime.funding ? { funding: runtime.funding } : {}) });
   let closed = false;
   const shutdown = () => { if (!closed) { closed = true; runtime.close(); } };
   server.server.onclose = shutdown;

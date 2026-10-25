@@ -44,6 +44,7 @@ export async function inspectReadiness(config: Config, request: JsonRequest = js
       bankReference: "bankCode + accountNumber", ngnAmountGuaranteed: false,
     },
     settlement: { route: "Circle Agent Wallet on Arc → PAJ Arc order → NGN bank payout", gatewayRequired: false, networkFeeCapped: false },
+    funding: { route: "NGN bank transfer → PAJ onramp order → Circle Agent Wallet USDC on Arc", orderPreparationImplemented: true, manualBankTransferRequired: true, liveFundingVerified: false, walletOwnershipCheckedDuringPreparation: true },
     blockers: [
       ...(!accountAccess.ok ? [{ code: "PROVIDER_ACCESS_UNVERIFIED", message: "A working PAJ Business API key is required for v2. Legacy OTP sessions are not used." }] : []),
       ...(!arcOrdersAvailable ? [{ code: "PROVIDER_CHAIN_UNVERIFIED", message: "The live PAJ chain list has not confirmed Arc is active." }] : []),

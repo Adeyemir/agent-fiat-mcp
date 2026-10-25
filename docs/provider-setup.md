@@ -71,3 +71,9 @@ V2 uses `GET /pub/v2/transaction/{id}`. Provider `COMPLETED` becomes `provider_c
 After a timeout, inspect the existing payout. Its provider order ID is retained; its local payout ID is also the Circle idempotency key. A known Circle transaction ID is saved. `reconciliation_required` is never automatically resubmitted, and `ERROR` does not trigger a replacement or automatic refund.
 
 The first live test completed with a confirmed Circle transfer, a matching completed PAJ receipt and the recipient's confirmation of bank credit. See [integration status](live-integration.md).
+
+## Naira funding through PAJ
+
+Use the same Business API key and existing Circle wallet configuration. From the source checkout, run `npm start -- fund 5000`, review the returned bank instructions and make the naira transfer yourself. Follow the saved local funding ID using `npm start -- funding-status YOUR_FUNDING_ID`; no automatic bank debit occurs. PAJ sends USDC to the configured Arc mainnet agent wallet. The tools refuse an inactive chain, a different wallet, testnet, malformed bank instructions and unsafe amounts.
+
+An active funding order is reused for the same naira amount. Uncertain creation and settlement mismatches require reconciliation, not a second order or payment. Unpaid bank instructions expire after 72 hours; never pay an expired account. Provider completion is not independent confirmation of wallet credit; inspect `get_balance` separately. The funding workflow has controlled test coverage and has not yet been verified with a live bank payment.

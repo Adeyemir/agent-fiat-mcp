@@ -5,7 +5,7 @@ import { loadConfig } from "../src/config.js";
 import { createRuntime } from "../src/runtime.js";
 
 // This isolated script deliberately ignores real provider/wallet configuration.
-const dataDir = mkdtempSync(join(tmpdir(), "naira-offramp-demo-"));
+const dataDir = mkdtempSync(join(tmpdir(), "agent-fiat-demo-"));
 const runtime = createRuntime(loadConfig({ OFFRAMP_MODE: "demo", OFFRAMP_DATA_DIR: dataDir }));
 try {
   console.log("DEMO ONLY — simulated balance, rate and bank payout. No real money moves.");

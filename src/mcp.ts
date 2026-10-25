@@ -6,6 +6,7 @@ import type { PayoutService } from "./service.js";
 import type { LiveService } from "./live-service.js";
 import type { LivePayoutSummary } from "./live-types.js";
 import type { BankAccount, PayoutSummary } from "./types.js";
+import type { FundingService } from "./funding-service.js";
 
 const bankSchema = z.object({
   bank: z.string().trim().min(1).max(120).describe("Exact Nigerian bank name or code from the bank directory."),
@@ -51,11 +52,11 @@ export function payoutApprovalMessage(payout: PayoutSummary | LivePayoutSummary,
   ].join("\n");
 }
 
-export function createMcpServer(service: PayoutService | LiveService, options: { readiness?: () => Promise<unknown> } = {}): McpServer {
-  const server = new McpServer({ name: "naira-offramp-mcp", version: "0.1.0" }, {
+export function createMcpServer(service: PayoutService | LiveService, options: { readiness?: () => Promise<unknown>; funding?: FundingService } = {}): McpServer {
+  const server = new McpServer({ name: "agent-fiat-mcp", version: "0.3.0" }, {
     instructions: service.mode === "demo"
       ? "Explicit simulator: balances, rates, quotes and payouts are fabricated. Always identify simulated results. For the simulated recipient use Demo Bank / 0000000000 / DEMO USER. Real API diagnostics from get_readiness do not fund simulated payouts. Use the saved bank unless another is explicitly requested. USDC amounts are a total budget including fees. Prepare a quote and obtain human approval through elicitation before execution. A model cannot approve. Never automatically resend an uncertain payment. bankPaid=false means actual bank credit has not been confirmed."
-      : "Real Circle Agent Wallet and PAJ v2 integration for USDC on Arc to NGN. Authenticate PAJ with its local Business API key; no PAJ OTP session is needed. get_balance reads actual Arc USDC; spendableUsdc=null is unknown, not zero. set_default_bank registers/verifies the account with PAJ, checks the full holder name and obtains human approval to save locally. Use the saved recipient unless another is explicitly requested. prepare_payout creates a one-off Arc order. NGN is an estimated target, never guaranteed: PAJ settles at the rate when the deposit is observed. A USDC request budgets transfer plus estimated gas and retains a fee reserve; actual gas is not hard-capped by the Circle CLI, so never promise a guaranteed total debit. Show the complete quote and obtain human elicitation approval before execute_payout. Never automatically resend an uncertain payment or create a replacement payout for it. Provider COMPLETED is reported as provider_completed; bankPaid=false because bank credit has not been independently verified. Use payout_status to track an existing order. This direct Arc route does not use Gateway or a Solana standing address. Never fall back to simulation.",
+      : "Real Circle Agent Wallet and PAJ v2 integration for USDC on Arc to NGN. Authenticate PAJ with its local Business API key; no PAJ OTP session is needed. get_balance reads actual Arc USDC; spendableUsdc=null is unknown, not zero. set_default_bank registers/verifies the account with PAJ, checks the full holder name and obtains human approval to save locally. Use the saved recipient unless another is explicitly requested. prepare_payout creates a one-off Arc order. NGN is an estimated target, never guaranteed: PAJ settles at the rate when the deposit is observed. A USDC request budgets transfer plus estimated gas and retains a fee reserve; actual gas is not hard-capped by the Circle CLI, so never promise a guaranteed total debit. Show the complete quote and obtain human elicitation approval before execute_payout. Never automatically resend an uncertain payment or create a replacement payout for it. Provider COMPLETED is reported as provider_completed; bankPaid=false because bank credit has not been independently verified. Use payout_status to track an existing order. This direct Arc route does not use Gateway or a Solana standing address. Never fall back to simulation." + (options.funding ? " For NGN funding, prepare_funding returns a one-time bank account bound to the existing authenticated Arc wallet. The person reviews and pays from their banking app; the tool never debits fiat. Track the same fundingId with funding_status. Never pay stale instructions or create a replacement for uncertain creation. Provider-reported completion is not independently verified wallet credit." : ""),
     maxToolInputElements: 30,
   });
 
@@ -130,6 +131,24 @@ export function createMcpServer(service: PayoutService | LiveService, options: {
     description: "List the ten most recent payouts in this local mode/profile. Bank account numbers are masked.",
     inputSchema: z.object({}).strict(), annotations: readOnly,
   }, () => result(() => service.history()));
+
+  if (options.funding) {
+    const funding = options.funding;
+    server.registerTool("prepare_funding", {
+      description: "Prepare naira funding of the existing authenticated Circle Agent Wallet on Arc through PAJ. Creates an unfunded virtual-bank-account order and returns the exact naira amount and estimated USDC. Reuses an active order for the same amount; never creates a replacement for uncertain creation. Show the complete receiving wallet, bank account, amount and expiry. The person must review and pay from their banking app; this tool never debits fiat or transfers USDC. Never pay expired instructions.",
+      inputSchema: z.object({ amountNgn: z.string().max(30).regex(/^(0|[1-9]\d*)(\.\d{1,2})?$/).describe("Positive naira amount as decimal text. The receiving Arc wallet comes from private configuration.") }).strict(),
+      annotations: { ...write, destructiveHint: false },
+    }, input => result(() => funding.prepare(input)));
+    server.registerTool("funding_status", {
+      description: "Poll the existing funding order without moving money. Only a returned bankPayment contains current payable instructions; if absent, do not request another payment or invent an account. PAJ COMPLETED means provider-reported USDC delivery, not independent proof of wallet credit. Use get_balance to inspect the wallet separately. Never pay again or create a replacement for an uncertain or mismatched order.",
+      inputSchema: z.object({ fundingId: z.string().uuid().describe("The local ID returned by prepare_funding.") }).strict(),
+      annotations: { ...readOnly, openWorldHint: true },
+    }, ({ fundingId }) => result(() => funding.status(fundingId)));
+    server.registerTool("funding_history", {
+      description: "Inspect the ten latest local funding orders for the configured wallet. Bank account numbers are masked. Never creates an order or moves money.",
+      inputSchema: z.object({}).strict(), annotations: readOnly,
+    }, () => result(() => funding.history()));
+  }
 
   return server;
 }

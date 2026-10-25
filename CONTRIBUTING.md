@@ -1,6 +1,6 @@
-# Contributing
+# Contributing to Agent Fiat MCP
 
-Start with Node.js 22.13+, `npm ci`, and the commands in the README. Keep changes focused on Arc USDC to NGN until the first live route is verified.
+Start with Node.js 22.13+, `npm ci`, and the commands in the README. Keep changes focused on local Circle Agent Wallet funding and naira payouts on Arc. Offramping has live recipient confirmation; onramping still requires a live funding test.
 
 The core interfaces are in `src/types.ts`:
 
@@ -16,3 +16,5 @@ Keep financial amounts as integer base units internally and decimal strings at t
 Use fake adapters and isolated temporary data for tests. Never commit credentials, bank details, wallet sessions, or a local payout database. A proposed live integration needs documentation of the provider contract and how uncertain submissions are reconciled.
 
 Run `npm run check`, `npm run build`, and `npm test` before submitting a change. Document which behavior was tested and which external integrations remain unverified.
+
+Funding logic is in `src/funding-service.ts`, with persisted records in `funding_orders`. Tests must use controlled PAJ responses and fake authenticated wallets, cover uncertain creation and retries across restarts, and distinguish PAJ-reported completion from independently observed wallet credit. Do not add browser/OAuth infrastructure to this local tool. Live funding or payment tests require the user to approve the concrete amount and destination.

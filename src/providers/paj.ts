@@ -151,6 +151,8 @@ export class PajClient {
     await this.requireActive(input.chain);
     const result = order(await this.call("/onramp", { fiatAmount, currency: "NGN", chain: input.chain, mint: PAJ_USDC[input.chain], recipient: input.receiveAddress }), "ON_RAMP");
     requireThat(result.chain === input.chain && result.recipient?.toLowerCase() === input.receiveAddress.toLowerCase() && result.ngn === decimal(units(input.spendNgn, 2), 2) && result.status === "INIT" && typeof result.accountNumber === "string" && /^\d{10}$/.test(result.accountNumber) && result.bank && result.accountName, "INVALID_PROVIDER_ORDER", "PAJ returned different funding details. Do not transfer fiat.");
+    text(result.bank, "funding bank");
+    text(result.accountName, "funding account name");
     return result;
   }
 
