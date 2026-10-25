@@ -1,6 +1,6 @@
 # Agent Fiat MCP
 
-**Pay people in naira from the [Circle Agent Wallet](https://agents.circle.com/) your agent already uses. Fund that same wallet with naira.**
+**Pay for irl services or businesses in naira from the [Circle Agent Wallet](https://agents.circle.com/) your agent already uses. Fund that same wallet with naira.**
 
 Your agent can pay for APIs and other agents' services in USDC. But a freelancer, supplier or local business may need naira in a bank account.
 
