@@ -1,6 +1,6 @@
 # Agent Fiat MCP
 
-**Pay people in naira from the Circle Agent Wallet your agent already uses. Fund that same wallet with naira.**
+**Pay people in naira from the [Circle Agent Wallet](https://agents.circle.com/) your agent already uses. Fund that same wallet with naira.**
 
 Your agent can pay for APIs and other agents' services in USDC. But a freelancer, supplier or local business may need naira in a bank account.
 
@@ -9,6 +9,14 @@ Agent Fiat MCP connects the two. Your agent verifies the recipient, prepares the
 Funding works in the other direction: request bank details, transfer naira from your banking app, and PAJ delivers USDC to that same agent wallet.
 
 ## What you can do
+
+```mermaid
+flowchart LR
+    Wallet[Circle Agent Wallet on Arc] --> Payout[PAJ payout order]
+    Payout --> Bank[Nigerian bank account]
+    Bank --> Funding[PAJ funding order]
+    Funding --> Wallet
+```
 
 | Action | Money flow | Current status |
 | --- | --- | --- |
@@ -34,7 +42,7 @@ This is a **local developer tool** for Nigerian naira ↔ USDC on Arc mainnet. R
 | Requirement | What to provide |
 | --- | --- |
 | Node.js and npm | Node.js **22.13+** and npm. |
-| Circle Agent Wallet | **Your own wallet on Arc mainnet**, already logged in through Circle CLI **1.2.1+**, and its Arc address. |
+| [Circle Agent Wallet](https://agents.circle.com/) | **Your own wallet on Arc mainnet**, already logged in through Circle CLI **1.2.1+**, and its Arc address. |
 | PAJ access | **Your own production Business API key** from the [PAJ developer dashboard](https://developer.paj.cash/). |
 | AI client, for MCP use | A client that can launch **local stdio MCP servers**. You can also use the CLI directly without an AI client. |
 
