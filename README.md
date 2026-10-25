@@ -27,22 +27,28 @@ Review the verified recipient and estimated costs, then approve before the agent
 
 The agent returns the bank account, exact naira amount, estimated USDC, receiving wallet and expiry. You review the details and make the transfer yourself in your banking app.
 
-## Where it runs
+## What you need
 
-This is a **local developer tool**. It gives a compatible AI client payment tools through MCP, or you can use its CLI directly. It uses your existing Circle CLI session and your own PAJ Business API key.
+This is a **local developer tool** for Nigerian naira ↔ USDC on Arc mainnet. Run it on a computer or terminal environment that can reach Circle and PAJ.
 
-**Web/mobile browser connectors are unsupported.** A web chat does not inherit your local wallet session. The supported route today is Nigerian naira ↔ USDC on Arc mainnet.
+| Requirement | What to provide |
+| --- | --- |
+| Node.js and npm | Node.js **22.13+** and npm. |
+| Circle Agent Wallet | **Your own wallet on Arc mainnet**, already logged in through Circle CLI **1.2.1+**, and its Arc address. |
+| PAJ access | **Your own production Business API key** from the [PAJ developer dashboard](https://developer.paj.cash/). |
+| AI client, for MCP use | A client that can launch **local stdio MCP servers**. You can also use the CLI directly without an AI client. |
 
-For MCP payouts, the client must support human approval forms (MCP form elicitation). Otherwise, approve in an interactive terminal. Funding requires you to make the bank transfer yourself; the tool does not debit your bank account.
+To **pay someone**, you need USDC in the Arc wallet to cover the payment and network fees, plus the recipient's Nigerian bank name/code, ten-digit account number and full account holder name.
+
+To **fund the wallet**, you need naira in your bank account. The tool returns bank instructions; you make the transfer yourself in your banking app.
+
+**Payout approval:** your MCP client must support human approval forms (MCP form elicitation). Otherwise, review and approve the payout in an interactive terminal.
+
+**Credentials:** configure the PAJ key privately in your local `.env`; do not paste it into chat or commit it. Wallet access uses the Circle CLI session. No Circle API key or Entity Secret is required. The tool needs no LLM API key; your AI client handles its own model access.
+
+**Web/mobile browser connectors are unsupported.** A normal web chat alone cannot run this server or access your local wallet session.
 
 ## Get started
-
-You need:
-
-- Node.js 22.13+ and npm.
-- Circle CLI 1.2.1+ with an authenticated Circle Agent Wallet and its Arc mainnet address.
-- A production Business API key from the [PAJ developer dashboard](https://developer.paj.cash/).
-- Network access to Circle and PAJ. Payouts also need USDC in the Arc wallet.
 
 Reuse your existing Circle installation, login and wallet. This tool uses that session; it does not manage wallet login or creation.
 
@@ -74,7 +80,7 @@ OFFRAMP_MODE=live
 
 `CIRCLE_ARC_ADDRESS` and `PAJ_API_KEY` are required for the live flows. Use an absolute `CIRCLE_BIN` path if your agent cannot find the authenticated executable on its `PATH`.
 
-**No Circle API key or Entity Secret is used.** Circle authenticates through its CLI session; PAJ uses the Business API key, without email/OTP login. Keep credentials in local configuration, outside prompts and version control. The MCP client supplies the model, so no LLM API key is needed.
+PAJ uses the Business API key directly; PAJ email/OTP login is not needed.
 
 ### 3. Check the connection
 
