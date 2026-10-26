@@ -46,7 +46,7 @@ For a USDC budget, the app retains `OFFRAMP_NETWORK_FEE_RESERVE_USDC` in the wal
 
 [PAJ funding addresses](https://docs.paj.cash/concepts/offramp) come from a pool. Unfunded orders release their address after about two hours, and order records are deleted after 72 hours. This app permits approval for at most five minutes, bounded by the provider's address window with a margin. It re-reads the exact order immediately before transfer and refuses stale or changed details. The five-minute window is local and does not lock the FX rate.
 
-`COMPLETED` is reported as `provider_completed`, together with PAJ's final received amount. For payouts, `bankCreditIndependentlyVerified` and `bankPaid` remain false because this MCP has no bank-credit evidence source. For funding, `walletCreditIndependentlyVerified` stays false in the status response; the wallet and chain checks below were performed separately. `ERROR` is a failed provider outcome requiring investigation; no refund or retry is invented.
+`COMPLETED` is reported as `provider_completed`, together with PAJ's final received amount. For payouts, `bankCreditIndependentlyVerified` and `bankPaid` remain false because this MCP has no bank-credit evidence source. Completed live CLI/MCP status results now include a [receipt](usage.md#receipts) with a separate Arc check; funding's `walletCreditIndependentlyVerified` becomes true only for a matching confirmed USDC credit. The historical wallet and chain checks below were performed separately before this receipt feature. `ERROR` is a failed provider outcome requiring investigation; no refund or retry is invented.
 
 ## Verification evidence
 

@@ -8,7 +8,7 @@ import { decimal, units } from "./money.js";
 import { PajClient, PAJ_USDC, type JsonRequest, type PajOrder } from "./providers/paj.js";
 import type { Store } from "./store.js";
 
-export type FundingWallet = Pick<CircleAgent, "address" | "chain" | "checkVersion" | "requireAgentWallet">;
+export type FundingWallet = Pick<CircleAgent, "address" | "chain" | "checkVersion" | "requireAgentWallet"> & Partial<Pick<CircleAgent, "usdcBalance">>;
 
 export class FundingService {
   constructor(readonly config: Config, private readonly store: Store, private readonly request: JsonRequest = jsonRequest, private readonly connectedWallet?: FundingWallet, private readonly now = () => Date.now()) {}
@@ -48,6 +48,7 @@ export class FundingService {
     }
     await this.provider().requireActive("ARC");
     const record: FundingOrder = { id: randomUUID(), walletKey, walletAddress: wallet.address, amountNgn, state: "creating", createdAt: new Date(this.now()).toISOString() };
+    try { const balance = await wallet.usdcBalance?.(); if (balance !== undefined) record.walletBalanceBeforeUsdc = balance; } catch {}
     if (!this.store.insertFunding(record)) {
       const active = this.store.activeFunding(walletKey);
       requireThat(active && active.amountNgn === amountNgn, "FUNDING_ORDER_ACTIVE", "Another funding order is already being prepared for this wallet. Inspect funding_history.");
@@ -114,6 +115,7 @@ export class FundingService {
     if (current.state === "awaiting_fiat" && current.expiresAt && Date.parse(current.expiresAt) <= this.now()) current.state = "expired";
     if (provider.status === "COMPLETED") {
       current.finalProviderUsdc = provider.usdc;
+      current.completedAt ??= new Date(this.now()).toISOString();
       if (provider.signature && /^0x[0-9a-f]{64}$/i.test(provider.signature)) current.transactionHash = provider.signature;
     }
     delete current.lastErrorCode;

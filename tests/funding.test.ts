@@ -84,7 +84,9 @@ test("repeated funding preparation refreshes and reuses the existing pending ord
 
 test("funding tracks processing and provider delivery without inventing wallet-credit verification", async t => {
   const f = fixture(t);
+  f.wallet.usdcBalance = async () => "0.531872";
   const first = await f.service.prepare({ amountNgn: "5000" });
+  assert.equal(f.store.funding(first.fundingId).walletBalanceBeforeUsdc, "0.531872");
   f.control.status = "PROCESSING";
   const processing = await f.service.status(first.fundingId);
   assert.equal(processing.state, "processing");
@@ -97,6 +99,7 @@ test("funding tracks processing and provider delivery without inventing wallet-c
   assert.equal(completed.transactionHash, f.control.patch.signature);
   assert.equal(completed.walletCreditIndependentlyVerified, false);
   assert.equal(completed.bankPayment, undefined);
+  assert.equal(f.store.funding(first.fundingId).completedAt, new Date(f.control.now).toISOString());
   await f.service.status(first.fundingId);
   assert.equal(f.control.posts, 1);
 });

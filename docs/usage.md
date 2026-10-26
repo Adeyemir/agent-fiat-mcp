@@ -20,7 +20,7 @@
 
 ## Real MCP tools
 
-The live server exposes 12 tools: `get_balance`, `list_banks`, `get_default_bank`, `set_default_bank`, `get_readiness`, `prepare_payout`, `execute_payout`, `payout_status`, `payout_history`, `prepare_funding`, `funding_status` and `funding_history`. The funding flow is described under [Local funding tools](#local-funding-tools).
+The live server exposes 13 tools: `get_balance`, `list_banks`, `get_default_bank`, `set_default_bank`, `get_readiness`, `prepare_payout`, `execute_payout`, `payout_status`, `payout_history`, `prepare_funding`, `funding_status`, `funding_history` and `get_receipt`. See [funding](#local-funding-tools) and [receipts](#receipts).
 
 `get_balance` reads actual Arc USDC. `spendableUsdc: null` means the final spendable payout amount depends on an order and gas quote. Missing credentials and wallet failures produce errors without a simulated fallback.
 
@@ -103,4 +103,20 @@ CLI equivalents are `npm start -- fund 5000`, `npm start -- funding-status YOUR_
 
 Once processing has been observed, a later `INIT` response cannot restore payable bank details. Versioned local updates also prevent overlapping status checks from overwriting newer progress or reconciliation results. Existing records without a version remain compatible.
 
-Funding records are stored alongside existing payouts in a separate `funding_orders` table. The legacy data directory and OFFRAMP_* settings remain supported after the project rename. PAJ COMPLETED is reported as `provider_completed`; `walletCreditIndependentlyVerified` stays false. Read the actual wallet balance separately with `get_balance`. The [first live funding test](live-integration.md#onramp-2026-10-25) confirmed a 1 USDC credit using separate Circle balance and Arc receipt checks; the status tool does not perform those independent checks itself.
+Funding records are stored alongside existing payouts in a separate `funding_orders` table. The legacy data directory and OFFRAMP_* settings remain supported after the project rename. PAJ COMPLETED is reported as `provider_completed`. The live CLI/MCP then generates a receipt; `walletCreditIndependentlyVerified` becomes true only when Arc verification confirms the expected USDC credit. An unavailable or mismatched chain response leaves it false. The [first live funding test](live-integration.md#onramp-2026-10-25) records the original manual verification.
+
+## Receipts
+
+```sh
+npm start -- receipt YOUR_LOCAL_FUNDING_OR_PAYOUT_ID
+```
+
+The MCP equivalent is `get_receipt({ "id": "YOUR_LOCAL_FUNDING_OR_PAYOUT_ID" })`. Only locally saved, PAJ-completed funding and payout orders qualify. Retrieval never creates orders, debits fiat or sends USDC. It can read Arc RPC and the existing Circle wallet balance, then writes a private local SVG and a receipt cache in the profile database.
+
+Completed live status results contain `receipt: { data, text, svgPath }`. MCP also returns the formatted text as a separate content block. The terminal displays the receipt; redirected status output keeps the structured JSON. The `receipt` command always prints the text block and SVG path. Files use `OFFRAMP_DATA_DIR/receipts/<id>.svg`, with mode `0600` in a new `0700` directory. No fonts, images or scripts are loaded from the network by the SVG.
+
+The generator uses recorded values, never random references or invented settlement times. Checked evidence and balance observations are cached, so the same record produces the same text, SVG bytes and path across restarts. Missing chain evidence can be checked again and upgrade the receipt to verified. Confirmation counts describe the saved check, not a continuously refreshed counter.
+
+Arc verification checks mainnet chain ID, successful transaction, block identity, confirmations, USDC contract, amount and the expected wallet transfer. A funding receipt can verify wallet credit; a payout receipt verifies the transfer to PAJ, while bank credit stays **Not independently verified**. Balance change is an observation between two checks and can include other wallet activity or gas; it is not used as order-specific proof. Older orders without a saved baseline show **Not recorded**. Timestamps identify their source: Arc block, observed completion or original order creation.
+
+If saving or checking a receipt fails, the completed payment remains completed and the status returns `receiptError`. Inspect the existing ID; never repeat a payment to obtain a receipt. Receipts contain financial details and the wallet address; share the SVG deliberately. Pending orders and the simulator cannot issue real payment receipts.

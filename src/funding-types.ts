@@ -10,6 +10,8 @@ export interface FundingOrder {
   amountNgn: string;
   state: FundingState;
   createdAt: string;
+  completedAt?: string;
+  walletBalanceBeforeUsdc?: string;
   expiresAt?: string;
   order?: PajOrder;
   providerStatus?: string;

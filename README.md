@@ -77,7 +77,7 @@ Verify that CIRCLE_ARC_ADDRESS belongs to my authenticated Arc agent wallet.
 
 Run the documented read-only doctor and provider checks. If this client
 supports local stdio MCP, register the server using its documented settings
-and absolute paths. Confirm that all 12 tools actually load. If a reload is
+and absolute paths. Confirm that all 13 tools actually load. If a reload is
 needed, report "configured; reload required", not "connected". If local MCP
 is unsupported, report CLI readiness and any blockers.
 
@@ -160,7 +160,7 @@ node --env-file=/absolute/path/agent-fiat-mcp/.env /absolute/path/agent-fiat-mcp
 
 It communicates through stdio and waits for the MCP client. There is no browser URL to open.
 
-The live server exposes 12 tools:
+The live server exposes 13 tools:
 
 | Purpose | Tools |
 | --- | --- |
@@ -168,6 +168,7 @@ The live server exposes 12 tools:
 | Bank accounts | `list_banks`, `get_default_bank`, `set_default_bank` |
 | Pay someone | `prepare_payout`, `execute_payout`, `payout_status`, `payout_history` |
 | Fund your wallet | `prepare_funding`, `funding_status`, `funding_history` |
+| Get a receipt | `get_receipt` |
 
 ## Use the terminal
 
@@ -207,11 +208,23 @@ npm start -- funding-history
 
 Preparation reuses an active funding order for the same amount. A different amount is blocked while an order is active. Pay only the current instructions returned by the tool; never reuse an expired account.
 
+### Get a receipt
+
+Completed `funding_status` and `payout_status` results automatically include a text receipt and the path to a local SVG receipt card. You can retrieve either receipt again:
+
+```sh
+npm start -- receipt YOUR_LOCAL_FUNDING_OR_PAYOUT_ID
+```
+
+For MCP, call `get_receipt` with `{ "id": "YOUR_LOCAL_FUNDING_OR_PAYOUT_ID" }`. The SVG is saved to `receipts/<id>.svg` inside `OFFRAMP_DATA_DIR` (default: `~/.local/share/naira-offramp-mcp`). Open that file to view or share the card; it contains payment details, with bank account numbers limited to their last four digits.
+
+Receipts show the final NGN and USDC amounts, PAJ status, wallet credit status, Arc confirmation, wallet address, timestamp, full transaction hash and an explorer link. Arc verification checks the expected USDC transfer against the chain. Balance changes appear only when both observations were recorded; older orders may show **Not recorded**. PAJ completion remains a provider report of bank settlement, not independent proof that a recipient's bank credited the account.
+
 ## Amounts, settlement and interrupted requests
 
 - **Amounts are estimates.** PAJ applies its rate when the deposit arrives. Circle estimates gas without a hard gas cap. Approval does not lock rates or guarantee the final received amount or total wallet debit.
 - **Approval belongs to the person.** Saving a recipient and executing a payout require MCP forms or an interactive terminal. A tool argument cannot grant approval.
-- **Delivery needs confirmation.** PAJ completion reports provider settlement. Bank receipt and wallet credit need separate confirmation. See the [live payment and funding evidence](docs/live-integration.md#verification-evidence); after funding, inspect the wallet with `get_balance`.
+- **Delivery needs confirmation.** Receipts separate PAJ's settlement report from independently checked Arc transfers. Missing evidence stays unverified; bank credit is not independently checked. See the [live payment and funding evidence](docs/live-integration.md#verification-evidence).
 - **Keep uncertain requests for investigation.** Check the existing ID with `payout_status` or `funding_status`. Do not send again, create a replacement or delete the database to retry. Errors do not establish refunds.
 
 See [usage and recovery](docs/usage.md) and [PAJ setup and settlement](docs/provider-setup.md) for the detailed behavior.
@@ -222,7 +235,7 @@ Optional settings for the data directory, payout budget and gas reserve are in t
 
 The rename preserves `OFFRAMP_*` settings and the default `~/.local/share/naira-offramp-mcp` data directory. Keep your existing recipients, history and private profile files. Configuration comes from the process environment and the `.env` passed to Node; older `provider.env` files are not loaded automatically.
 
-The existing npm release, `naira-offramp-mcp@0.3.0`, contains the earlier payout-only implementation. It does not include the funding tools in this checkout.
+The existing npm release, `naira-offramp-mcp@0.3.0`, contains the earlier payout-only implementation. It does not include the funding or receipt tools in this checkout.
 
 ## Development
 

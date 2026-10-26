@@ -6,6 +6,7 @@ import type { BankAccount, Payout, PayoutState } from "./types.js";
 import { requireThat } from "./errors.js";
 import type { LivePayout, LivePayoutState } from "./live-types.js";
 import type { FundingOrder, FundingState } from "./funding-types.js";
+import type { CachedReceipt } from "./receipt-types.js";
 
 export class Store {
   private readonly db: DatabaseSync;
@@ -16,6 +17,7 @@ export class Store {
     this.db.exec("PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS payouts (id TEXT PRIMARY KEY, mode TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL)");
     this.db.exec("CREATE TABLE IF NOT EXISTS live_payouts (id TEXT PRIMARY KEY, state TEXT NOT NULL, data TEXT NOT NULL)");
     this.db.exec("CREATE TABLE IF NOT EXISTS funding_orders (id TEXT PRIMARY KEY, wallet_key TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL); CREATE INDEX IF NOT EXISTS funding_wallet ON funding_orders(wallet_key)");
+    this.db.exec("CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, data TEXT NOT NULL)");
   }
   initialiseDemo() {
     this.db.exec("CREATE TABLE IF NOT EXISTS demo_transfers (id TEXT PRIMARY KEY, order_id TEXT UNIQUE NOT NULL, units TEXT NOT NULL)");
@@ -85,6 +87,24 @@ export class Store {
   }
   recentFunding(walletKey: string): FundingOrder[] {
     return this.db.prepare("SELECT data FROM funding_orders WHERE wallet_key=? ORDER BY rowid DESC LIMIT 10").all(walletKey).map(row => JSON.parse(String(row.data)) as FundingOrder);
+  }
+  receiptOrder(id: string): { kind: "funding"; order: FundingOrder } | { kind: "payout"; order: LivePayout } {
+    const rows = this.db.prepare("SELECT 'funding' AS kind,data FROM funding_orders WHERE id=? UNION ALL SELECT 'payout' AS kind,data FROM live_payouts WHERE id=?").all(id, id);
+    requireThat(rows.length === 1, rows.length ? "AMBIGUOUS_RECEIPT_ID" : "RECEIPT_NOT_FOUND", "Use the local ID of an existing funding or payout order in this profile.");
+    const row = rows[0]!;
+    return row.kind === "funding" ? { kind: "funding", order: JSON.parse(String(row.data)) as FundingOrder } : { kind: "payout", order: JSON.parse(String(row.data)) as LivePayout };
+  }
+  receipt(id: string): CachedReceipt | undefined {
+    const row = this.db.prepare("SELECT data FROM receipts WHERE id=?").get(id);
+    return row ? JSON.parse(String(row.data)) as CachedReceipt : undefined;
+  }
+  saveReceipt(id: string, receipt: CachedReceipt) {
+    this.db.prepare("INSERT INTO receipts(id,data) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data").run(id, JSON.stringify(receipt));
+  }
+  transaction<T>(action: () => T): T {
+    this.db.exec("BEGIN IMMEDIATE");
+    try { const result = action(); this.db.exec("COMMIT"); return result; }
+    catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
   demoBalance(): bigint {
     return BigInt(String(this.db.prepare("SELECT value FROM settings WHERE key='demo_balance'").get()!.value));

@@ -101,6 +101,7 @@ export class LiveService {
     const balance = await wallet.usdcBalance();
     requireThat(balance !== "0" && charge + BigInt(payout.feeReserveUnits) <= units(balance), "INSUFFICIENT_BALANCE", "The Arc wallet cannot cover the USDC transfer and the network fee reserve.");
     payout.estimatedFeeUnits = fee.toString();
+    payout.walletBalanceBeforeUsdc = balance;
   }
 
   private load(id: string): LivePayout {
@@ -168,7 +169,7 @@ export class LiveService {
     const previous = current.state;
     current.providerStatus = provider.status;
     if (receiptMatches) current.providerReceipt = provider;
-    if (provider.status === "COMPLETED") { current.state = "provider_completed"; current.finalProviderNgn = provider.ngn; }
+    if (provider.status === "COMPLETED") { current.state = "provider_completed"; current.finalProviderNgn = provider.ngn; current.completedAt ??= new Date(this.now()).toISOString(); }
     if (provider.status === "ERROR") current.state = "failed";
     this.store.saveLive(current, previous);
     return this.summary(this.load(id));

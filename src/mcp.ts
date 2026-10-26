@@ -7,6 +7,7 @@ import type { LiveService } from "./live-service.js";
 import type { LivePayoutSummary } from "./live-types.js";
 import type { BankAccount, PayoutSummary } from "./types.js";
 import type { FundingService } from "./funding-service.js";
+import type { ReceiptService } from "./receipt-service.js";
 
 const bankSchema = z.object({
   bank: z.string().trim().min(1).max(120).describe("Exact Nigerian bank name or code from the bank directory."),
@@ -20,7 +21,11 @@ const write = { readOnlyHint: false, destructiveHint: true, idempotentHint: fals
 async function result(action: () => unknown | Promise<unknown>): Promise<CallToolResult> {
   try {
     const data = { result: await action() };
-    return { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: data };
+    const value = data.result;
+    const candidate = value && typeof value === "object" && "receipt" in value ? value.receipt : value;
+    const content: CallToolResult["content"] = [{ type: "text", text: JSON.stringify(data) }];
+    if (candidate && typeof candidate === "object" && "text" in candidate && typeof candidate.text === "string" && "svgPath" in candidate && typeof candidate.svgPath === "string") content.push({ type: "text", text: `${candidate.text}\nSVG receipt: ${candidate.svgPath}` });
+    return { content, structuredContent: data };
   } catch (error) {
     const data = { error: publicError(error) };
     return { isError: true, content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: data };
@@ -52,13 +57,18 @@ export function payoutApprovalMessage(payout: PayoutSummary | LivePayoutSummary,
   ].join("\n");
 }
 
-export function createMcpServer(service: PayoutService | LiveService, options: { readiness?: () => Promise<unknown>; funding?: FundingService } = {}): McpServer {
+export function createMcpServer(service: PayoutService | LiveService, options: { readiness?: () => Promise<unknown>; funding?: FundingService; receipts?: ReceiptService } = {}): McpServer {
   const server = new McpServer({ name: "agent-fiat-mcp", version: "0.3.0" }, {
     instructions: service.mode === "demo"
       ? "Explicit simulator: balances, rates, quotes and payouts are fabricated. Always identify simulated results. For the simulated recipient use Demo Bank / 0000000000 / DEMO USER. Real API diagnostics from get_readiness do not fund simulated payouts. Use the saved bank unless another is explicitly requested. USDC amounts are a total budget including fees. Prepare a quote and obtain human approval through elicitation before execution. A model cannot approve. Never automatically resend an uncertain payment. bankPaid=false means actual bank credit has not been confirmed."
-      : "Real Circle Agent Wallet and PAJ v2 integration for USDC on Arc to NGN. Authenticate PAJ with its local Business API key; no PAJ OTP session is needed. get_balance reads actual Arc USDC; spendableUsdc=null is unknown, not zero. set_default_bank registers/verifies the account with PAJ, checks the full holder name and obtains human approval to save locally. Use the saved recipient unless another is explicitly requested. prepare_payout creates a one-off Arc order. NGN is an estimated target, never guaranteed: PAJ settles at the rate when the deposit is observed. A USDC request budgets transfer plus estimated gas and retains a fee reserve; actual gas is not hard-capped by the Circle CLI, so never promise a guaranteed total debit. Show the complete quote and obtain human elicitation approval before execute_payout. Never automatically resend an uncertain payment or create a replacement payout for it. Provider COMPLETED is reported as provider_completed; bankPaid=false because bank credit has not been independently verified. Use payout_status to track an existing order. This direct Arc route does not use Gateway or a Solana standing address. Never fall back to simulation." + (options.funding ? " For NGN funding, prepare_funding returns a one-time bank account bound to the existing authenticated Arc wallet. The person reviews and pays from their banking app; the tool never debits fiat. Track the same fundingId with funding_status. Never pay stale instructions or create a replacement for uncertain creation. Provider-reported completion is not independently verified wallet credit." : ""),
+      : "Real Circle Agent Wallet and PAJ v2 integration for USDC on Arc to NGN. Authenticate PAJ with its local Business API key; no PAJ OTP session is needed. get_balance reads actual Arc USDC; spendableUsdc=null is unknown, not zero. set_default_bank registers/verifies the account with PAJ, checks the full holder name and obtains human approval to save locally. Use the saved recipient unless another is explicitly requested. prepare_payout creates a one-off Arc order. NGN is an estimated target, never guaranteed: PAJ settles at the rate when the deposit is observed. A USDC request budgets transfer plus estimated gas and retains a fee reserve; actual gas is not hard-capped by the Circle CLI, so never promise a guaranteed total debit. Show the complete quote and obtain human elicitation approval before execute_payout. Never automatically resend an uncertain payment or create a replacement payout for it. Provider COMPLETED is reported as provider_completed; bankPaid=false because bank credit has not been independently verified. Use payout_status to track an existing order. This direct Arc route does not use Gateway or a Solana standing address. Never fall back to simulation." + (options.funding ? " For NGN funding, prepare_funding returns a one-time bank account bound to the existing authenticated Arc wallet. The person reviews and pays from their banking app; the tool never debits fiat. Track the same fundingId with funding_status. Never pay stale instructions or create a replacement for uncertain creation. Provider-reported completion alone is not independently verified wallet credit." : "") + (options.receipts ? " Completed status results include a text receipt and a local SVG path. Show these to the person, preserving missing or unverified evidence labels. get_receipt retrieves either completed order by its local ID. Arc verification establishes the expected USDC transfer, never recipient bank credit. A receiptError does not reverse completion or justify another payment." : ""),
     maxToolInputElements: 30,
   });
+
+  async function withReceipt<T extends { state: string; fundingId?: string; payoutId?: string }>(action: () => Promise<T>) {
+    const status = await action();
+    return options.receipts ? options.receipts.attach(status) : status;
+  }
 
   function requireApprovalSupport() {
     const capabilities = server.server.getClientCapabilities()?.elicitation;
@@ -120,12 +130,12 @@ export function createMcpServer(service: PayoutService | LiveService, options: {
   server.registerTool("execute_payout", {
     description: "Obtain human approval of the prepared recipient, payment, indicative NGN and fee terms, re-check the existing order and fee, then submit once. Real mode transfers Arc USDC through Circle Agent Wallet. Repeated execution only inspects status; uncertain submissions require reconciliation and must not be resent.",
     inputSchema: z.object(idSchema).strict(), annotations: { ...write, idempotentHint: true },
-  }, ({ payoutId }) => result(() => service.execute(payoutId, (payout, bank) => approve(payoutApprovalMessage(payout, bank)))));
+  }, ({ payoutId }) => result(() => withReceipt(async () => service.execute(payoutId, (payout, bank) => approve(payoutApprovalMessage(payout, bank))))));
 
   server.registerTool("payout_status", {
-    description: "Poll an existing payout without sending funds. Live provider COMPLETED becomes provider_completed and includes the provider's final NGN amount; bankPaid remains false until independent bank-credit evidence exists. ERROR reports failed with no automatic retry or refund. Demo completion remains explicitly simulated.",
+    description: "Poll an existing payout without sending funds. Live provider COMPLETED becomes provider_completed and includes the provider's final NGN amount; bankPaid remains false until independent bank-credit evidence exists. When receipt support is configured, completed results include a text receipt and local SVG path with separate Arc evidence. ERROR reports failed with no automatic retry or refund. Demo completion remains explicitly simulated.",
     inputSchema: z.object(idSchema).strict(), annotations: { ...readOnly, openWorldHint: true },
-  }, ({ payoutId }) => result(() => service.status(payoutId)));
+  }, ({ payoutId }) => result(() => withReceipt(async () => service.status(payoutId))));
 
   server.registerTool("payout_history", {
     description: "List the ten most recent payouts in this local mode/profile. Bank account numbers are masked.",
@@ -138,17 +148,23 @@ export function createMcpServer(service: PayoutService | LiveService, options: {
       description: "Prepare naira funding of the existing authenticated Circle Agent Wallet on Arc through PAJ. Creates an unfunded virtual-bank-account order and returns the exact naira amount and estimated USDC. Reuses an active order for the same amount; never creates a replacement for uncertain creation. Show the complete receiving wallet, bank account, amount and expiry. The person must review and pay from their banking app; this tool never debits fiat or transfers USDC. Never pay expired instructions.",
       inputSchema: z.object({ amountNgn: z.string().max(30).regex(/^(0|[1-9]\d*)(\.\d{1,2})?$/).describe("Positive naira amount as decimal text. The receiving Arc wallet comes from private configuration.") }).strict(),
       annotations: { ...write, destructiveHint: false },
-    }, input => result(() => funding.prepare(input)));
+    }, input => result(() => withReceipt(() => funding.prepare(input))));
     server.registerTool("funding_status", {
-      description: "Poll the existing funding order without moving money. Only a returned bankPayment contains current payable instructions; if absent, do not request another payment or invent an account. PAJ COMPLETED means provider-reported USDC delivery, not independent proof of wallet credit. Use get_balance to inspect the wallet separately. Never pay again or create a replacement for an uncertain or mismatched order.",
+      description: "Poll the existing funding order without moving money. Only a returned bankPayment contains current payable instructions; if absent, do not request another payment or invent an account. PAJ COMPLETED means provider-reported USDC delivery. When receipt support is configured, completed results include a text receipt and local SVG path; walletCreditIndependentlyVerified is true only after checking the matching Arc USDC credit. Preserve unverified labels when evidence is missing. Never pay again or create a replacement for an uncertain or mismatched order.",
       inputSchema: z.object({ fundingId: z.string().uuid().describe("The local ID returned by prepare_funding.") }).strict(),
       annotations: { ...readOnly, openWorldHint: true },
-    }, ({ fundingId }) => result(() => funding.status(fundingId)));
+    }, ({ fundingId }) => result(() => withReceipt(() => funding.status(fundingId))));
     server.registerTool("funding_history", {
       description: "Inspect the ten latest local funding orders for the configured wallet. Bank account numbers are masked. Never creates an order or moves money.",
       inputSchema: z.object({}).strict(), annotations: readOnly,
     }, () => result(() => funding.history()));
   }
+
+  if (options.receipts) server.registerTool("get_receipt", {
+    description: "Generate the deterministic text receipt and private local SVG for an existing completed funding or payout ID. Includes PAJ status, observed balance change when recorded, Arc transfer verification and its explorer link. Show the receipt text and SVG path to the person, preserving unverified labels. Provider completion is not independent bank-credit proof. May perform read-only chain and wallet checks and write local receipt files; never creates an order or moves money.",
+    inputSchema: z.object({ id: z.string().uuid().describe("The local fundingId or payoutId of the completed order.") }).strict(),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  }, ({ id }) => result(() => options.receipts!.get(id)));
 
   return server;
 }

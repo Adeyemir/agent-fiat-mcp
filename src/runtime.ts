@@ -5,13 +5,14 @@ import { LiveService } from "./live-service.js";
 import { PayoutService } from "./service.js";
 import { Store } from "./store.js";
 import { FundingService } from "./funding-service.js";
+import { ReceiptService } from "./receipt-service.js";
 
 export function createRuntime(config: Config = loadConfig()) {
   if (config.mode === "live") {
     const store = new Store(join(config.dataDir, `offramp-live-${config.pajEnvironment}-${config.arcNetwork}.sqlite`));
-    return { config, store, service: new LiveService(config, store), funding: new FundingService(config, store), close: () => store.close() };
+    return { config, store, service: new LiveService(config, store), funding: new FundingService(config, store), receipts: new ReceiptService(config, store), close: () => store.close() };
   }
   const store = new Store(join(config.dataDir, "offramp.sqlite"));
   const service = new PayoutService("demo", new DemoProvider(store), new DemoSettlement(store), store, config.maximumUnits);
-  return { config, store, service, funding: undefined, close: () => store.close() };
+  return { config, store, service, funding: undefined, receipts: undefined, close: () => store.close() };
 }

@@ -93,7 +93,7 @@ test("only human approval permits one transfer; chain success remains bank_pendi
 });
 
 test("provider completion retains the final repriced NGN without inventing independent bank credit", async t => {
-  const { service, control } = fixture(t);
+  const { service, control, store } = fixture(t);
   const quote = await service.prepare({ amount: "10", currency: "USDC" });
   await service.execute(quote.payoutId, async () => true);
   control.status = "COMPLETED"; control.finalNgn = 14900;
@@ -103,6 +103,8 @@ test("provider completion retains the final repriced NGN without inventing indep
   assert.equal(result.finalProviderNgn, "14900");
   assert.equal(result.bankPaid, false);
   assert.equal(result.bankCreditIndependentlyVerified, false);
+  assert.equal(store.live(quote.payoutId).walletBalanceBeforeUsdc, "100");
+  assert.equal(store.live(quote.payoutId).completedAt, new Date(control.now).toISOString());
 });
 
 test("PAJ's settled receipt may replace address and timestamp only when its transfer matches Circle", async t => {

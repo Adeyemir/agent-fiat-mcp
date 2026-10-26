@@ -5,6 +5,7 @@ export type LivePayoutState = "prepared" | "authorising" | "submitting" | "bank_
 export interface LivePayout {
   id: string; state: LivePayoutState; bank: BankAccount; order: PajOrder;
   sourceAddress: string; createdAt: string; approvalExpiresAt: string;
+  completedAt?: string; walletBalanceBeforeUsdc?: string;
   requested: { amount: string; currency: "NGN" | "USDC" };
   budgetUnits: string; feeReserveUnits: string; estimatedFeeUnits: string;
   circleTransactionId?: string; transactionHash?: string; providerStatus?: string;

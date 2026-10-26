@@ -9,6 +9,12 @@ import { createRuntime } from "./runtime.js";
 import { inspectReadiness } from "./readiness.js";
 import { providerLogin } from "./provider-login.js";
 
+function printStatus(value: unknown) {
+  const receipt = value && typeof value === "object" && "receipt" in value ? value.receipt : undefined;
+  if (process.stdout.isTTY && receipt && typeof receipt === "object" && "text" in receipt && "svgPath" in receipt) console.log(`${receipt.text}\nSVG receipt: ${receipt.svgPath}`);
+  else console.log(JSON.stringify(value, null, 2));
+}
+
 async function doctor() {
   const config = loadConfig();
   let circleVersion: unknown = "Not checked: no Arc agent wallet configured.";
@@ -39,6 +45,16 @@ async function main() {
     requireThat(payoutId === undefined, "INVALID_COMMAND", "provider-login takes no arguments. Credentials belong in your private local environment.");
     return providerLogin(loadConfig());
   }
+  if (command === "receipt") {
+    requireThat(payoutId && extra.length === 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payoutId), "INVALID_COMMAND", "Use receipt <local-funding-or-payout-id>.");
+    const runtime = createRuntime();
+    try {
+      requireThat(runtime.receipts, "RECEIPT_UNAVAILABLE", "Payment receipts are available only in the live profile.");
+      const receipt = await runtime.receipts.get(payoutId);
+      console.log(`${receipt.text}\nSVG receipt: ${receipt.svgPath}`);
+    } finally { runtime.close(); }
+    return;
+  }
   if (command === "fund" || command === "funding-status" || command === "funding-history") {
     requireThat(extra.length === 0 && (command === "funding-history" ? payoutId === undefined : Boolean(payoutId)), "INVALID_COMMAND", "Use fund <amount-ngn>, funding-status <funding-id>, or funding-history.");
     if (command === "funding-status") requireThat(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payoutId!), "INVALID_COMMAND", "Use the local funding ID returned by fund.");
@@ -46,7 +62,7 @@ async function main() {
     try {
       requireThat(runtime.funding, "FUNDING_UNAVAILABLE", "Naira funding is available only in live mode for the existing Arc mainnet agent wallet.");
       const response = command === "fund" ? await runtime.funding.prepare({ amountNgn: payoutId! }) : command === "funding-status" ? await runtime.funding.status(payoutId!) : runtime.funding.history();
-      console.log(JSON.stringify(response, null, 2));
+      printStatus(runtime.receipts && !Array.isArray(response) ? await runtime.receipts.attach(response) : response);
     } finally { runtime.close(); }
     return;
   }
@@ -58,7 +74,7 @@ async function main() {
     return;
   }
   if (command === "--help" || command === "help") {
-    console.log("agent-fiat-mcp [serve | doctor | provider-check | set-bank | quote <amount> <NGN|USDC> | approve <payout-id> | fund <amount-ngn> | funding-status <funding-id> | funding-history]\nLocal Circle Agent Wallet + PAJ v2 integration. Offramp payments require human approval. Funding returns bank instructions for a manual naira payment; it never debits a bank account. Amounts and network fees are estimates. OFFRAMP_MODE=demo explicitly selects payout simulation.");
+    console.log("agent-fiat-mcp [serve | doctor | provider-check | set-bank | quote <amount> <NGN|USDC> | approve <payout-id> | fund <amount-ngn> | funding-status <funding-id> | funding-history | receipt <id>]\nLocal Circle Agent Wallet + PAJ v2 integration. Offramp payments require human approval. Funding returns bank instructions for a manual naira payment; it never debits a bank account. Receipts show provider and independently checked evidence separately. Amounts and network fees are estimates. OFFRAMP_MODE=demo explicitly selects payout simulation.");
     return;
   }
   requireThat(!command || ["serve", "set-bank", "approve"].includes(command), "INVALID_COMMAND", "Use serve, doctor, set-bank or approve <payout-id>.");
@@ -75,13 +91,14 @@ async function main() {
         const expectedName = await reader.question("Full account holder name: ");
         console.log(JSON.stringify(await runtime.service.setDefaultBank({ bank, accountNumber, expectedName }, account => confirm(`Save ${account.name}, ${account.bank}, ${account.accountNumber}? ${account.simulated ? "DEMO: no real verification." : `Verified with PAJ ${runtime.config.pajEnvironment}; stored locally for Arc ${runtime.config.arcNetwork}.`}`)), null, 2));
       } else {
-        console.log(JSON.stringify(await runtime.service.execute(payoutId!, (payout, bank) => confirm(payoutApprovalMessage(payout, bank))), null, 2));
+        const status = await runtime.service.execute(payoutId!, (payout, bank) => confirm(payoutApprovalMessage(payout, bank)));
+        printStatus(runtime.receipts ? await runtime.receipts.attach(status) : status);
       }
     } finally { reader.close(); runtime.close(); }
     return;
   }
   const runtime = createRuntime();
-  const server = createMcpServer(runtime.service, { readiness: () => inspectReadiness(runtime.config), ...(runtime.funding ? { funding: runtime.funding } : {}) });
+  const server = createMcpServer(runtime.service, { readiness: () => inspectReadiness(runtime.config), ...(runtime.funding ? { funding: runtime.funding } : {}), ...(runtime.receipts ? { receipts: runtime.receipts } : {}) });
   let closed = false;
   const shutdown = () => { if (!closed) { closed = true; runtime.close(); } };
   server.server.onclose = shutdown;
