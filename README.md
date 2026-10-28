@@ -8,6 +8,10 @@ Agent Fiat MCP connects the two. Your agent verifies the recipient, prepares the
 
 Funding works in the other direction: request bank details, transfer naira from your banking app, and PAJ delivers USDC to that same agent wallet.
 
+## Watch the demo
+
+[![Watch the Agent Fiat MCP demo on YouTube](https://img.youtube.com/vi/wron0SObSCQ/hqdefault.jpg)](https://www.youtube.com/watch?v=wron0SObSCQ)
+
 ## What you can do
 
 ```mermaid
